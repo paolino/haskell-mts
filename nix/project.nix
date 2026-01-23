@@ -59,5 +59,7 @@ in {
   packages.csmt = project.hsPkgs.csmt.components.exes.csmt;
   packages.bench = project.hsPkgs.csmt.components.benchmarks.bench;
   packages.unit-tests = project.hsPkgs.csmt.components.tests.unit-tests;
+  packages.mpf = project.hsPkgs.csmt.components.tests.mpf;
+  packages.mpf-unit-tests = project.hsPkgs.csmt.components.tests.mpf-unit-tests;
   musl64 = project.projectCross.musl64.hsPkgs;
 }

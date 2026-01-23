@@ -72,7 +72,6 @@ library
     CSMT.Interface
     CSMT.Proof.Completeness
     CSMT.Proof.Insertion
-    Data.Serialize.Extra
 
   build-depends:
     , async                    >=2.2   && <2.3
@@ -93,6 +92,38 @@ library
     , transformers             >=0.6   && <0.7
 
   hs-source-dirs:   src/csmt/
+  default-language: Haskell2010
+
+library mpf
+  import:           warnings
+  visibility:       public
+  exposed-modules:
+    MPF
+    MPF.Backend.Pure
+    MPF.Backend.RocksDB
+    MPF.Backend.Standalone
+    MPF.Deletion
+    MPF.Hashes
+    MPF.Insertion
+    MPF.Interface
+    MPF.Proof.Insertion
+
+  build-depends:
+    , async
+    , base
+    , bytestring
+    , cereal
+    , containers
+    , crypton
+    , exceptions
+    , lens
+    , memory
+    , rocksdb-haskell-jprupp
+    , rocksdb-kv-transactions
+    , rocksdb-kv-transactions:kv-transactions
+    , transformers
+
+  hs-source-dirs:   src/mpf/
   default-language: Haskell2010
 
 executable csmt
@@ -156,6 +187,41 @@ test-suite unit-tests
     CSMT.InterfaceSpec
     CSMT.Proof.CompletenessSpec
     CSMT.Proof.InsertionSpec
+
+library mpf-test-lib
+  import:           warnings
+  visibility:       public
+  exposed-modules:  MPF.Test.Lib
+  build-depends:
+    , base
+    , bytestring
+    , csmt:mpf
+    , lens
+    , rocksdb-kv-transactions:kv-transactions
+    , text
+
+  hs-source-dirs:   test-lib-mpf
+  default-language: Haskell2010
+
+test-suite mpf-unit-tests
+  import:             warnings
+  default-language:   Haskell2010
+  hs-source-dirs:     test-mpf
+  build-depends:
+    , base
+    , bytestring
+    , containers
+    , csmt:mpf
+    , csmt:mpf-test-lib
+    , hspec
+
+  build-tool-depends: hspec-discover:hspec-discover
+  type:               exitcode-stdio-1.0
+  main-is:            main.hs
+  other-modules:
+    MPF.HashesSpec
+    MPF.InsertionSpec
+    MPF.InterfaceSpec
 
 benchmark bench
   import:           warnings
