@@ -14,6 +14,13 @@ module MPF.Test.Lib
     , fromHexKVIdentity
     , fromHexKVByteString
 
+      -- * Proof Utilities
+    , proofMPFM
+    , verifyMPFM
+    , MPFProof
+    , MPFProofStep (..)
+    , foldMPFProof
+
       -- * Test Vectors
     , fruitsTestData
     , expectedFullTrieRoot
@@ -56,6 +63,13 @@ import MPF.Interface
     , HexKey
     , byteStringToHexKey
     , hexKeyPrism
+    )
+import MPF.Proof.Insertion
+    ( MPFProof
+    , MPFProofStep (..)
+    , foldMPFProof
+    , mkMPFInclusionProof
+    , verifyMPFInclusionProof
     )
 
 -- | Default codecs for testing with MPFHash
@@ -117,6 +131,22 @@ deleteMPFM k =
 insertByteStringM :: ByteString -> ByteString -> MPFPure ()
 insertByteStringM k v =
     insertMPFM (byteStringToHexKey $ renderMPFHash $ mkMPFHash k) (mkMPFHash v)
+
+-- | Generate a membership proof for a key in the Pure monad
+proofMPFM :: HexKey -> MPFPure (Maybe (MPFProof MPFHash))
+proofMPFM k =
+    runTransactionUnguarded (mpfPureDatabase mpfHashCodecs)
+        $ mkMPFInclusionProof fromHexKVIdentity MPFStandaloneMPFCol k
+
+-- | Verify a membership proof for a key-value pair in the Pure monad
+verifyMPFM :: HexKey -> MPFHash -> MPFPure Bool
+verifyMPFM k v =
+    runTransactionUnguarded (mpfPureDatabase mpfHashCodecs) $ do
+        mProof <- mkMPFInclusionProof fromHexKVIdentity MPFStandaloneMPFCol k
+        case mProof of
+            Nothing -> pure False
+            Just proof ->
+                verifyMPFInclusionProof fromHexKVIdentity MPFStandaloneMPFCol mpfHashing v proof
 
 -- | Get the root hash from the MPF trie
 getRootHashM :: MPFPure (Maybe MPFHash)

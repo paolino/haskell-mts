@@ -222,6 +222,7 @@ test-suite mpf-unit-tests
     MPF.HashesSpec
     MPF.InsertionSpec
     MPF.InterfaceSpec
+    MPF.Proof.InsertionSpec
 
 benchmark bench
   import:           warnings
