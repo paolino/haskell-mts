@@ -53,13 +53,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.release-please.outputs.tag_name }}
         run: |
-          # Find and copy actual files from bundler outputs
-          find csmt.deb -name "*.deb" -exec cp {} csmt-${TAG}.deb \;
-          find csmt.rpm -name "*.rpm" -exec cp {} csmt-${TAG}.rpm \;
-          cp -L csmt.AppImage csmt-${TAG}.AppImage 2>/dev/null || \
-            find csmt.AppImage -type f -exec cp {} csmt-${TAG}.AppImage \;
-          cp csmt-image csmt-${TAG}-docker.tar.gz 2>/dev/null || \
-            find csmt-image -type f -exec cp {} csmt-${TAG}-docker.tar.gz \;
+          # Copy actual files from bundler outputs (bundlers create directories)
+          cp csmt.deb/*.deb csmt-${TAG}.deb
+          cp csmt.rpm/*.rpm csmt-${TAG}.rpm
+          cp -L csmt.AppImage csmt-${TAG}.AppImage
+          cp -L csmt-image csmt-${TAG}-docker.tar.gz
 
           gh release upload ${TAG} \
             csmt-${TAG}.deb \
