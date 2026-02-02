@@ -8,7 +8,7 @@ module MPF.Test.Lib
     , deleteMPFM
     , insertByteStringM
     , insertBatchMPFM
-    , insertBulkMPFM
+    , insertChunkedMPFM
     , getRootHashM
     , evalMPFPure'
     , runMPFPure'
@@ -64,7 +64,7 @@ import MPF.Hashes
     , parseMPFHash
     , renderMPFHash
     )
-import MPF.Insertion (inserting, insertingBatch, insertingBulk)
+import MPF.Insertion (inserting, insertingBatch, insertingChunked)
 import MPF.Interface
     ( FromHexKV (..)
     , HexIndirect (..)
@@ -147,12 +147,12 @@ insertBatchMPFM kvs =
     runTransactionUnguarded (mpfPureDatabase mpfHashCodecs)
         $ insertingBatch fromHexKVIdentity mpfHashing MPFStandaloneKVCol MPFStandaloneMPFCol kvs
 
--- | Bulk insert for large datasets in the Pure monad
--- Sorts by key and inserts sequentially for optimal performance
-insertBulkMPFM :: [(HexKey, MPFHash)] -> MPFPure ()
-insertBulkMPFM kvs =
+-- | Chunked insert for large datasets in the Pure monad
+-- Processes items in chunks to bound memory usage
+insertChunkedMPFM :: Int -> [(HexKey, MPFHash)] -> MPFPure Int
+insertChunkedMPFM chunkSize kvs =
     runTransactionUnguarded (mpfPureDatabase mpfHashCodecs)
-        $ insertingBulk fromHexKVIdentity mpfHashing MPFStandaloneKVCol MPFStandaloneMPFCol kvs
+        $ insertingChunked fromHexKVIdentity mpfHashing MPFStandaloneKVCol MPFStandaloneMPFCol chunkSize kvs
 
 -- | Generate a membership proof for a key in the Pure monad
 proofMPFM :: HexKey -> MPFPure (Maybe (MPFProof MPFHash))

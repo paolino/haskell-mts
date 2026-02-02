@@ -2,7 +2,6 @@
 {-# LANGUAGE BangPatterns #-}
 
 -- | MPF Benchmark - Haskell Implementation
--- Compares against the TypeScript/Aiken implementation
 module Main where
 
 import Control.Monad (forM, when)
@@ -17,7 +16,7 @@ import MPF.Test.Lib
     , emptyMPFInMemoryDB
     , getRootHashM
     , insertBatchMPFM
-    , insertBulkMPFM
+    , insertMPFM
     , proofMPFM
     , runMPFPure
     , verifyMPFM
@@ -29,7 +28,7 @@ import Text.Printf (printf)
 -- | Generate deterministic test data
 generateTestData :: Int -> [(ByteString, ByteString)]
 generateTestData count =
-    [ (B8.pack $ "key-" <> padLeft 6 '0' (show i), B8.pack $ "value-" <> show i)
+    [ (B8.pack $ "key-" <> padLeft 8 '0' (show i), B8.pack $ "value-" <> show i)
     | i <- [0 .. count - 1]
     ]
   where
@@ -38,15 +37,16 @@ generateTestData count =
 -- | Benchmark helper
 benchmark :: String -> IO a -> IO (a, Double)
 benchmark name action = do
+    putStr $ name ++ "... "
+    hFlush stdout
     start <- getCurrentTime
     result <- action
     end <- getCurrentTime
     let durationMs = realToFrac (diffUTCTime end start) * 1000 :: Double
-    printf "%s: %.2fms\n" name durationMs
+    printf "%.2fms\n" durationMs
     pure (result, durationMs)
 
--- | Run all insertions using batch insert (for small/medium datasets)
--- Uses divide-and-conquer for O(n log n) performance
+-- | Run all insertions using batch insert (divide-and-conquer)
 insertAllBatch :: [(ByteString, ByteString)] -> (Maybe ByteString, MPFInMemoryDB)
 insertAllBatch testData =
     let action :: MPFPure (Maybe ByteString)
@@ -57,17 +57,39 @@ insertAllBatch testData =
             pure $ renderMPFHash <$> mRoot
     in  runMPFPure emptyMPFInMemoryDB action
 
--- | Run all insertions using bulk insert (for large datasets)
--- Sorts by key and inserts sequentially - better for millions of items
-insertAllBulk :: [(ByteString, ByteString)] -> (Maybe ByteString, MPFInMemoryDB)
-insertAllBulk testData =
-    let action :: MPFPure (Maybe ByteString)
-        action = do
-            let kvs = [(byteStringToHexKey k, mkMPFHash v) | (k, v) <- testData]
-            insertBulkMPFM kvs
-            mRoot <- getRootHashM
-            pure $ renderMPFHash <$> mRoot
-    in  runMPFPure emptyMPFInMemoryDB action
+-- | Run insertions using chunked insert with progress
+insertAllChunked :: Int -> [(ByteString, ByteString)] -> IO (Maybe ByteString, MPFInMemoryDB)
+insertAllChunked chunkSize testData = do
+    let totalChunks = (length testData + chunkSize - 1) `div` chunkSize
+    putStrLn $ "Inserting " ++ show (length testData) ++ " items in " ++ show totalChunks ++ " chunks..."
+
+    -- Process chunks with progress
+    let go :: MPFInMemoryDB -> [[(ByteString, ByteString)]] -> Int -> IO (MPFInMemoryDB, Int)
+        go db [] !n = pure (db, n)
+        go db (chunk:rest) !n = do
+            let (_, db') = runMPFPure db $ do
+                    let kvs = [(byteStringToHexKey k, mkMPFHash v) | (k, v) <- chunk]
+                    mapM_ (uncurry insertMPFM) kvs
+            putStrLn $ "  Chunk " ++ show (n+1) ++ "/" ++ show totalChunks ++ " (" ++ show (length chunk) ++ " items)"
+            hFlush stdout
+            go db' rest (n+1)
+
+    let chunks = chunksOf chunkSize testData
+    (finalDb, _) <- go emptyMPFInMemoryDB chunks 0
+
+    -- Get root hash
+    let (mRoot, _) = runMPFPure finalDb $ do
+            mh <- getRootHashM
+            pure $ renderMPFHash <$> mh
+
+    pure (mRoot, finalDb)
+
+-- | Split a list into chunks
+chunksOf :: Int -> [a] -> [[a]]
+chunksOf _ [] = []
+chunksOf n xs =
+    let (chunk, rest) = splitAt n xs
+    in  chunk : chunksOf n rest
 
 -- | Generate proofs for all keys using an existing database
 generateProofs :: [(ByteString, ByteString)] -> MPFInMemoryDB -> Int
@@ -95,9 +117,9 @@ verifyAll testData db =
     in  fst $ runMPFPure db action
 
 -- | Run benchmark for a given count
-runBenchmark :: Bool -> Bool -> Int -> IO ()
-runBenchmark useBulk skipProofs count = do
-    let method = if useBulk then "bulk" else "batch" :: String
+runBenchmark :: Bool -> Bool -> Int -> Int -> IO ()
+runBenchmark useChunked skipProofs chunkSize count = do
+    let method = if useChunked then "chunked" else "batch" :: String
     putStrLn $ "\n=== Haskell MPF Benchmark (n=" ++ show count ++ ", method=" ++ method ++ ") ===\n"
 
     -- Generate test data
@@ -105,16 +127,22 @@ runBenchmark useBulk skipProofs count = do
     hFlush stdout
     start <- getCurrentTime
     let testData = generateTestData count
-    -- Force evaluation by computing length
     _ <- pure $! length testData
     end <- getCurrentTime
     printf "%.2fs\n" (realToFrac (diffUTCTime end start) :: Double)
 
     -- Benchmark: Insert all items
-    let insertFn = if useBulk then insertAllBulk else insertAllBatch
-    ((mRootHash, db), insertTime) <- benchmark ("Insert " ++ show count ++ " items (" ++ method ++ ")") $ do
-        let !result = insertFn testData
-        pure result
+    (mRootHash, db, insertTime) <- if useChunked
+        then do
+            start' <- getCurrentTime
+            (mRoot, db') <- insertAllChunked chunkSize testData
+            end' <- getCurrentTime
+            let durationMs = realToFrac (diffUTCTime end' start') * 1000
+            pure (mRoot, db', durationMs)
+        else do
+            ((mRoot, db'), t) <- benchmark ("Insert " ++ show count ++ " items (batch)") $ do
+                pure $! insertAllBatch testData
+            pure (mRoot, db', t)
 
     case mRootHash of
         Just h -> printf "Root hash: %s\n" (B8.unpack h)
@@ -122,14 +150,12 @@ runBenchmark useBulk skipProofs count = do
 
     -- For very large datasets, skip proof generation/verification
     when (not skipProofs) $ do
-        -- Benchmark: Generate proofs for all items
-        (proofsGenerated, proofGenTime) <- benchmark (printf "Generate %d proofs" count) $ do
+        (proofsGenerated, proofGenTime) <- benchmark ("Generate " ++ show count ++ " proofs") $ do
             pure $! generateProofs testData db
 
         printf "Proofs generated: %d/%d\n" proofsGenerated count
 
-        -- Benchmark: Verify all proofs
-        (verified, verifyTime) <- benchmark (printf "Verify %d proofs" count) $ do
+        (verified, verifyTime) <- benchmark ("Verify " ++ show count ++ " proofs") $ do
             pure $! verifyAll testData db
 
         printf "Verified: %d/%d\n" verified count
@@ -145,19 +171,22 @@ runBenchmark useBulk skipProofs count = do
 main :: IO ()
 main = do
     args <- getArgs
-    let (useBulk, skipProofs, counts) = parseArgs args
+    let (useChunked, skipProofs, chunkSize, counts) = parseArgs args
 
     putStrLn "MPF Benchmark - Haskell Implementation"
     putStrLn "======================================"
-    when useBulk $ putStrLn "(Using bulk insert - sorted sequential)"
+    when useChunked $ putStrLn $ "(Using chunked insert, chunk size: " ++ show chunkSize ++ ")"
     when skipProofs $ putStrLn "(Skipping proof generation/verification)"
 
-    mapM_ (runBenchmark useBulk skipProofs) counts
+    mapM_ (runBenchmark useChunked skipProofs chunkSize) counts
 
-parseArgs :: [String] -> (Bool, Bool, [Int])
+parseArgs :: [String] -> (Bool, Bool, Int, [Int])
 parseArgs args =
-    let useBulk = "--bulk" `elem` args
+    let useChunked = "--chunked" `elem` args
         skipProofs = "--skip-proofs" `elem` args
+        chunkSize = case [read (drop 8 x) | x <- args, take 8 x == "--chunk="] of
+            (n:_) -> n
+            [] -> 50000  -- Default chunk size
         nums = [read x | x <- args, all (`elem` ['0'..'9']) x, not (null x)]
         counts = if null nums then [100, 1000] else nums
-    in (useBulk, skipProofs, counts)
+    in (useChunked, skipProofs, chunkSize, counts)

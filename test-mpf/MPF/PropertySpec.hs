@@ -24,7 +24,7 @@ import MPF.Test.Lib
     ( deleteMPFM
     , getRootHashM
     , insertBatchMPFM
-    , insertBulkMPFM
+    , insertChunkedMPFM
     , insertMPFM
     , runMPFPure'
     , verifyMPFM
@@ -83,8 +83,8 @@ spec = do
             it "batch insert equals sequential inserts" $
                 property propBatchEqualsSequential
 
-            it "bulk insert equals sequential inserts" $
-                property propBulkEqualsSequential
+            it "chunked insert equals sequential inserts" $
+                property propChunkedEqualsSequential
 
         describe "insertion order independence" $ do
             it "same keys in any order produce same root hash" $
@@ -199,9 +199,9 @@ propBatchEqualsSequential =
                         getRootHashM
                 in  fmap renderMPFHash rootSeq === fmap renderMPFHash rootBatch
 
--- | Property: bulk insert produces same root hash as sequential inserts
-propBulkEqualsSequential :: Property
-propBulkEqualsSequential =
+-- | Property: chunked insert produces same root hash as sequential inserts
+propChunkedEqualsSequential :: Property
+propChunkedEqualsSequential =
     forAll (vectorOf 5 ((,) <$> genKeyBytes <*> genValue)) $ \rawKvs ->
         let kvs = nubBy (\(k1, _) (k2, _) -> toHexKey k1 == toHexKey k2) rawKvs
         in  length kvs >= 2 ==>
@@ -210,8 +210,8 @@ propBulkEqualsSequential =
                     (rootSeq, _) = runMPFPure' $ do
                         forM_ kvHashed $ uncurry insertMPFM
                         getRootHashM
-                    -- Bulk insert
-                    (rootBulk, _) = runMPFPure' $ do
-                        insertBulkMPFM kvHashed
+                    -- Chunked insert (chunk size 2 to test chunking)
+                    (rootChunked, _) = runMPFPure' $ do
+                        _ <- insertChunkedMPFM 2 kvHashed
                         getRootHashM
-                in  fmap renderMPFHash rootSeq === fmap renderMPFHash rootBulk
+                in  fmap renderMPFHash rootSeq === fmap renderMPFHash rootChunked

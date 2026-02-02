@@ -1,9 +1,10 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE StrictData #-}
 
 module MPF.Insertion
     ( inserting
     , insertingBatch
-    , insertingBulk
+    , insertingChunked
     , mkMPFCompose
     , scanMPFCompose
     , MPFCompose (..)
@@ -76,21 +77,40 @@ insertingBatch FromHexKV{fromHexK, fromHexV} hashing kvCol mpfCol kvs = do
         Nothing -> pure () -- Empty list
         Just c -> mapM_ (uncurry $ insert mpfCol) $ snd $ scanMPFCompose hashing c
 
--- | Bulk insert for large datasets (millions of items)
--- This is an alias for 'insertingBatch' which uses divide-and-conquer to build
--- the tree in a single pass. For empty trees, this achieves O(n log n) complexity.
+-- | Chunked insert for very large datasets (millions of items)
+-- Processes items in chunks to bound memory usage. Works with any backend.
 --
--- Note: For adding items to an existing non-empty tree, use 'inserting' for each
--- item, or consider rebuilding the tree with all items using 'insertingBatch'.
-insertingBulk
+-- For truly large datasets (10M+), use this with the RocksDB backend which
+-- persists data to disk between chunks, keeping memory bounded.
+--
+-- Returns the number of chunks processed.
+insertingChunked
     :: (Monad m, Ord k, GCompare d)
     => FromHexKV k v a
     -> MPFHashing a
     -> Selector d k v
     -> Selector d HexKey (HexIndirect a)
+    -> Int
+    -- ^ Chunk size (e.g., 50000)
     -> [(k, v)]
-    -> Transaction m cf d ops ()
-insertingBulk = insertingBatch
+    -> Transaction m cf d ops Int
+insertingChunked fhkv hashing kvCol mpfCol chunkSize kvs = do
+    let chunks = chunksOf chunkSize kvs
+    go 0 chunks
+  where
+    go !n [] = pure n
+    go !n (chunk : rest) = do
+        -- Insert this chunk item by item
+        mapM_ (\(k, v) -> inserting fhkv hashing kvCol mpfCol k v) chunk
+        -- Continue with rest
+        go (n + 1) rest
+
+-- | Split a list into chunks of the given size
+chunksOf :: Int -> [a] -> [[a]]
+chunksOf _ [] = []
+chunksOf n xs =
+    let (chunk, rest) = splitAt n xs
+    in  chunk : chunksOf n rest
 
 -- | Build an MPFCompose tree from a list of key-value pairs
 -- Uses divide-and-conquer: find common prefix, group by first digit, recurse
