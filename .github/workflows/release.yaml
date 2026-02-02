@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          release-type: simple
+
+  publish:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: sudo rm -rf /opt&
+      - uses: actions/checkout@v4
+      - uses: paolino/dev-assets/setup-nix@v0.0.1
+        with:
+          cachix-auth-token: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      - name: Build docker image
+        run: nix --quiet build .#docker-image -o csmt-image
+
+      - name: Build AppImage
+        run: nix --quiet bundle --bundler github:ralismark/nix-appimage .#csmt -o csmt.AppImage
+
+      - name: Build RPM
+        run: nix --quiet bundle --bundler github:NixOS/bundlers#toRPM -o csmt.rpm
+
+      - name: Build DEB
+        run: nix --quiet bundle --bundler github:NixOS/bundlers#toDEB -o csmt.deb
+
+      - name: Upload release artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload ${{ needs.release-please.outputs.tag_name }} \
+            csmt-image \
+            csmt.AppImage \
+            csmt.rpm \
+            csmt.deb
