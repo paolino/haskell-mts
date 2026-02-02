@@ -216,6 +216,7 @@ test-suite mpf-unit-tests
     , csmt:mpf
     , csmt:mpf-test-lib
     , hspec
+    , QuickCheck
 
   build-tool-depends: hspec-discover:hspec-discover
   type:               exitcode-stdio-1.0
@@ -225,6 +226,7 @@ test-suite mpf-unit-tests
     MPF.InsertionSpec
     MPF.InterfaceSpec
     MPF.Proof.InsertionSpec
+    MPF.PropertySpec
 
 benchmark bench
   import:           warnings
