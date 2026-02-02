@@ -17,48 +17,40 @@
 module CSMT.Deletion
     ( deleting
     , newDeletionPath
-    , DeletionPath (..)
+    , DeletionPath
     , deletionPathToOps
     )
 where
 
 import CSMT.Interface
-    ( Direction (..)
-    , FromKV (..)
+    ( FromKV (..)
     , Hashing (..)
     , Indirect (..)
     , Key
-    , addWithDirection
-    , compareKeys
-    , oppositeDirection
     )
-import Control.Monad (guard)
-import Control.Monad.Trans.Maybe (MaybeT (..))
+import CSMT.Path
+    ( TreePath (..)
+    , extractPath
+    , pathToOps
+    )
 import Database.KV.Transaction
     ( GCompare
     , Selector
     , Transaction
     , delete
     , insert
-    , query
     )
 
 -- |
 -- A path through the tree to a value being deleted.
 --
--- * 'Value' - The leaf node containing the value to delete
--- * 'Branch' - An internal node along the path, recording the sibling
---   that will need to be updated after deletion
+-- This is now a type alias for 'TreePath' from "CSMT.Path".
+-- The constructors are:
 --
--- This structure captures the entire path from root to leaf, which is
--- needed to properly update parent hashes after deletion.
-data DeletionPath a where
-    -- | A leaf node with its jump path and value
-    Value :: Key -> a -> DeletionPath a
-    -- | A branch node with jump path, direction taken, child path, and sibling
-    Branch
-        :: Key -> Direction -> DeletionPath a -> Indirect a -> DeletionPath a
-    deriving (Show, Eq)
+-- * 'PathLeaf' - The leaf node containing the value to delete
+-- * 'PathBranch' - An internal node along the path, recording the sibling
+--   that will need to be updated after deletion
+type DeletionPath a = TreePath a
 
 -- |
 -- Delete a key-value pair from the CSMT.
@@ -100,40 +92,10 @@ applyOp csmtSel (k, Just i) = insert csmtSel k i
 -- insert/delete operations. When a branch loses one child, its sibling's
 -- jump path is extended to maintain the compact representation.
 deletionPathToOps
-    :: forall a
-     . Hashing a
+    :: Hashing a
     -> DeletionPath a
     -> [(Key, Maybe (Indirect a))]
-deletionPathToOps hashing = snd . go []
-  where
-    go
-        :: Key
-        -> DeletionPath a
-        -> (Maybe (Indirect a), [(Key, Maybe (Indirect a))])
-    go k (Value _ _v) = (Nothing, [(k, Nothing)])
-    go k (Branch j d v i) =
-        let
-            (msb, xs) = go (k <> j <> [d]) v
-        in
-            case msb of
-                Just i' ->
-                    let h = addWithDirection hashing d i' i
-                        i'' = Indirect{jump = j, value = h}
-                    in  ( Just i''
-                        , [(k, Just i'')] <> xs
-                        )
-                Nothing ->
-                    let i' =
-                            Indirect
-                                { jump = j <> [oppositeDirection d] <> jump i
-                                , value = value i
-                                }
-                    in  ( Just i'
-                        , [ (k, Just i')
-                          , (k <> j <> [oppositeDirection d], Nothing)
-                          ]
-                            <> xs
-                        )
+deletionPathToOps = pathToOps
 
 -- |
 -- Build a deletion path for the given key.
@@ -141,26 +103,8 @@ deletionPathToOps hashing = snd . go []
 -- Traverses the tree from root to the target key, recording each branch
 -- along the way. Returns 'Nothing' if the key does not exist in the tree.
 newDeletionPath
-    :: forall a d ops cf m
-     . (Monad m, GCompare d)
+    :: (Monad m, GCompare d)
     => Selector d Key (Indirect a)
     -> Key
     -> Transaction m cf d ops (Maybe (DeletionPath a))
-newDeletionPath csmtSel = runMaybeT . go []
-  where
-    go
-        :: Key
-        -> Key
-        -> MaybeT (Transaction m cf d ops) (DeletionPath a)
-    go current remaining = do
-        Indirect{jump = j, value = v} <- MaybeT $ query csmtSel current
-        let (_common, other, remaining') = compareKeys j remaining
-        guard $ null other
-        case remaining' of
-            [] -> pure $ Value j v
-            (r : remaining'') -> do
-                let current' = current <> j
-                sibling <-
-                    MaybeT $ query csmtSel (current' <> [oppositeDirection r])
-                p <- go (current' <> [r]) remaining''
-                pure $ Branch j r p sibling
+newDeletionPath = extractPath

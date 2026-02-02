@@ -67,7 +67,7 @@ import CSMT.Backend.Pure
     , runPure
     )
 import CSMT.Deletion
-    ( DeletionPath (..)
+    ( DeletionPath
     , deleting
     , newDeletionPath
     )

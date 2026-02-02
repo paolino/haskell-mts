@@ -70,6 +70,7 @@ library
     CSMT.Hashes.Types
     CSMT.Insertion
     CSMT.Interface
+    CSMT.Path
     CSMT.Proof.Completeness
     CSMT.Proof.Insertion
     Data.Serialize.Extra

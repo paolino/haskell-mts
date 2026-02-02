@@ -28,12 +28,13 @@ import CSMT.Interface
     , Indirect (..)
     , Key
     , addWithDirection
-    , oppositeDirection
+    )
+import CSMT.Path
+    ( extractPath
+    , pathToProofSteps
     )
 import Control.Monad.Trans.Maybe (MaybeT (MaybeT, runMaybeT))
-import Data.List (isPrefixOf)
 
-import Control.Monad (guard)
 import Database.KV.Transaction
     ( GCompare
     , Selector
@@ -101,33 +102,25 @@ buildInclusionProof FromKV{fromK, fromV} kvSel csmtSel hashing k =
         v <- MaybeT $ query kvSel k
         let key = fromK k
             value = fromV v
-        rootIndirect@(Indirect rootJump _) <- MaybeT $ query csmtSel []
-        guard $ isPrefixOf rootJump key
-        steps <- go rootJump $ drop (length rootJump) key
-        let proofData =
+        rootIndirect <- MaybeT $ query csmtSel []
+        treePath <- MaybeT $ extractPath csmtSel key
+        let (rootJump, _leafValue, rawSteps) = pathToProofSteps treePath
+            steps = map toProofStep rawSteps
+            proofData =
                 InclusionProof
                     { proofKey = key
                     , proofValue = value
                     , proofRootHash = rootHash hashing rootIndirect
-                    , proofSteps = reverse steps
+                    , proofSteps = steps
                     , proofRootJump = rootJump
                     }
         pure (v, proofData)
   where
-    go _ [] = pure []
-    go u (x : ks) = do
-        Indirect jump _ <- MaybeT $ query csmtSel (u <> [x])
-        guard $ isPrefixOf jump ks
-        stepSibling <- MaybeT $ query csmtSel (u <> [oppositeDirection x])
-        let step =
-                ProofStep
-                    { stepConsumed = 1 + length jump
-                    , stepSibling
-                    }
-        (step :)
-            <$> go
-                (u <> (x : jump))
-                (drop (length jump) ks)
+    toProofStep (consumed, sibling) =
+        ProofStep
+            { stepConsumed = consumed
+            , stepSibling = sibling
+            }
 
 -- |
 -- Verify an inclusion proof is internally consistent.

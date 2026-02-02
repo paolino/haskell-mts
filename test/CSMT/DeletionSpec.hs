@@ -15,10 +15,10 @@ import CSMT.Backend.Pure
     , runPureTransaction
     )
 import CSMT.Deletion
-    ( DeletionPath (..)
-    , deletionPathToOps
+    ( deletionPathToOps
     , newDeletionPath
     )
+import CSMT.Path (TreePath (..))
 import CSMT.Interface (Key)
 import CSMT.Test.Lib
     ( deleteWord64
@@ -52,7 +52,7 @@ spec = do
                         $ runPureTransaction word64Codecs
                         $ newDeletionPath StandaloneCSMTCol []
               in
-                mp `shouldBe` Just (Value [] 1)
+                mp `shouldBe` Just (PathLeaf [] 1)
         it "constructs a deletion path for a tree with siblings"
             $ let
                 rs0 = insertWord64 emptyInMemoryDB [L] (1 :: Word64)
@@ -61,14 +61,14 @@ spec = do
               in
                 mp
                     `shouldBe` Just
-                        (Branch [] L (Value [] 1) (node [] 2))
+                        (PathBranch [] L (PathLeaf [] 1) (node [] 2))
         it "constructs a deletion path for a tree with jumps"
             $ let
                 rs0 = insertWord64 emptyInMemoryDB [L, L] (1 :: Word64)
                 rs1 = insertWord64 rs0 [L, R] (2 :: Word64)
                 mp = mkDeletionPath word64Codecs rs1 [L, L]
               in
-                mp `shouldBe` Just (Branch [L] L (Value [] 1) (node [] 2))
+                mp `shouldBe` Just (PathBranch [L] L (PathLeaf [] 1) (node [] 2))
         it "constructs a deletion path for a deeper tree with jumps"
             $ let
                 rs0 = insertWord64 emptyInMemoryDB [L, L, R] (1 :: Word64)
@@ -82,36 +82,36 @@ spec = do
                 do
                     mp0
                         `shouldBe` Just
-                            ( Branch
+                            ( PathBranch
                                 []
                                 L
-                                ( Branch
+                                ( PathBranch
                                     []
                                     L
-                                    (Value [R] 1)
+                                    (PathLeaf [R] 1)
                                     (node [L] 2)
                                 )
                                 (node [L, R] 3)
                             )
                     mp1
                         `shouldBe` Just
-                            ( Branch
+                            ( PathBranch
                                 []
                                 L
-                                ( Branch
+                                ( PathBranch
                                     []
                                     R
-                                    (Value [L] 2)
+                                    (PathLeaf [L] 2)
                                     (node [R] 1)
                                 )
                                 (node [L, R] 3)
                             )
                     mp2
                         `shouldBe` Just
-                            ( Branch
+                            ( PathBranch
                                 []
                                 R
-                                (Value [L, R] 3)
+                                (PathLeaf [L, R] 3)
                                 (node [] 4)
                             )
                     rs3 `shouldBe` rs1
@@ -128,36 +128,36 @@ spec = do
                 do
                     mp0
                         `shouldBe` Just
-                            ( Branch
+                            ( PathBranch
                                 []
                                 L
-                                ( Branch
+                                ( PathBranch
                                     [L]
                                     L
-                                    (Value [] 1)
+                                    (PathLeaf [] 1)
                                     (node [] 2)
                                 )
                                 (node [R, R] 3)
                             )
                     mp1
                         `shouldBe` Just
-                            ( Branch
+                            ( PathBranch
                                 []
                                 L
-                                ( Branch
+                                ( PathBranch
                                     [L]
                                     R
-                                    (Value [] 2)
+                                    (PathLeaf [] 2)
                                     (node [] 1)
                                 )
                                 (node [R, R] 3)
                             )
                     mp2
                         `shouldBe` Just
-                            ( Branch
+                            ( PathBranch
                                 []
                                 R
-                                (Value [R, R] 3)
+                                (PathLeaf [R, R] 3)
                                 (node [L] 3)
                             )
 
@@ -257,10 +257,10 @@ spec = do
               in
                 mp
                     `shouldBe` Just
-                        ( Branch
+                        ( PathBranch
                             []
                             L
-                            (Value [R] 2)
+                            (PathLeaf [R] 2)
                             (node [L] 3)
                         )
         it "computes the right ops to delete [L,R] from [[L, R], [R, L]]"
