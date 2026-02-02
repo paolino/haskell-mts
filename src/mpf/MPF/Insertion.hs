@@ -1,10 +1,12 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StrictData #-}
 
 module MPF.Insertion
     ( inserting
     , insertingBatch
     , insertingChunked
+    , insertingStream
     , mkMPFCompose
     , scanMPFCompose
     , MPFCompose (..)
@@ -111,6 +113,61 @@ chunksOf _ [] = []
 chunksOf n xs =
     let (chunk, rest) = splitAt n xs
     in  chunk : chunksOf n rest
+
+-- | Streaming batch insert for very large datasets
+-- Groups items by first hex digit and processes each group separately,
+-- reducing peak memory by ~16x compared to full batch insert.
+-- Still requires O(n) memory for the input list and one group at a time.
+insertingStream
+    :: forall m k v a d cf ops
+     . (Monad m, Ord k, GCompare d)
+    => FromHexKV k v a
+    -> MPFHashing a
+    -> Selector d k v
+    -> Selector d HexKey (HexIndirect a)
+    -> [(k, v)]
+    -> Transaction m cf d ops ()
+insertingStream FromHexKV{fromHexK, fromHexV} hashing kvCol mpfCol kvs = do
+    -- Insert all key-value pairs into the KV store first
+    mapM_ (uncurry $ insert kvCol) kvs
+
+    -- Convert to hex keys and group by first digit
+    let hexKvs = [(fromHexK k, fromHexV v) | (k, v) <- kvs]
+        grouped = groupByFirstDigit' hexKvs
+
+    -- Process each group independently and collect root nodes
+    childResults <- mapM processGroup (Map.toList grouped)
+
+    -- Build final root node from the 16 subtrees
+    let childMap = Map.fromList [(d, ind) | (d, Just ind) <- childResults]
+    if Map.null childMap
+        then pure ()
+        else do
+            -- Create root branch with all children
+            let sparseArray = [Map.lookup (HexDigit n) childMap | n <- [0 .. 15]]
+                childHashes = map (fmap hexValue) sparseArray
+                mr = merkleRoot hashing childHashes
+                rootValue = branchHash hashing [] mr
+                rootNode = mkBranchIndirect [] rootValue
+            insert mpfCol [] rootNode
+  where
+    processGroup :: (HexDigit, [(HexKey, a)]) -> Transaction m cf d ops (HexDigit, Maybe (HexIndirect a))
+    processGroup (digit, items) = do
+        case buildComposeFromList items of
+            Nothing -> pure (digit, Nothing)
+            Just compose -> do
+                let (rootInd, inserts) = scanMPFCompose hashing compose
+                -- Write all nodes for this subtree with digit prefix
+                mapM_ (\(k, v) -> insert mpfCol ([digit] <> k) v) inserts
+                pure (digit, Just rootInd)
+
+-- | Group by first hex digit, keeping remaining key
+groupByFirstDigit' :: [(HexKey, a)] -> Map HexDigit [(HexKey, a)]
+groupByFirstDigit' = foldl' addToGroup' Map.empty
+  where
+    addToGroup' acc ([], _) = acc
+    addToGroup' acc (d : rest, v) =
+        Map.insertWith (++) d [(rest, v)] acc
 
 -- | Build an MPFCompose tree from a list of key-value pairs
 -- Uses divide-and-conquer: find common prefix, group by first digit, recurse

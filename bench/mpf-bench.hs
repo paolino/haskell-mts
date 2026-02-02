@@ -17,6 +17,7 @@ import MPF.Test.Lib
     , getRootHashM
     , insertBatchMPFM
     , insertMPFM
+    , insertStreamMPFM
     , proofMPFM
     , runMPFPure
     , verifyMPFM
@@ -53,6 +54,17 @@ insertAllBatch testData =
         action = do
             let kvs = [(byteStringToHexKey k, mkMPFHash v) | (k, v) <- testData]
             insertBatchMPFM kvs
+            mRoot <- getRootHashM
+            pure $ renderMPFHash <$> mRoot
+    in  runMPFPure emptyMPFInMemoryDB action
+
+-- | Run all insertions using streaming insert (groups by first hex digit)
+insertAllStream :: [(ByteString, ByteString)] -> (Maybe ByteString, MPFInMemoryDB)
+insertAllStream testData =
+    let action :: MPFPure (Maybe ByteString)
+        action = do
+            let kvs = [(byteStringToHexKey k, mkMPFHash v) | (k, v) <- testData]
+            insertStreamMPFM kvs
             mRoot <- getRootHashM
             pure $ renderMPFHash <$> mRoot
     in  runMPFPure emptyMPFInMemoryDB action
@@ -116,11 +128,18 @@ verifyAll testData db =
             pure $ sum results
     in  fst $ runMPFPure db action
 
+data InsertMethod = Batch | Stream | Chunked Int
+    deriving (Eq)
+
+methodName :: InsertMethod -> String
+methodName Batch = "batch"
+methodName Stream = "stream"
+methodName (Chunked n) = "chunked-" ++ show n
+
 -- | Run benchmark for a given count
-runBenchmark :: Bool -> Bool -> Int -> Int -> IO ()
-runBenchmark useChunked skipProofs chunkSize count = do
-    let method = if useChunked then "chunked" else "batch" :: String
-    putStrLn $ "\n=== Haskell MPF Benchmark (n=" ++ show count ++ ", method=" ++ method ++ ") ===\n"
+runBenchmark :: InsertMethod -> Bool -> Int -> IO ()
+runBenchmark method skipProofs count = do
+    putStrLn $ "\n=== Haskell MPF Benchmark (n=" ++ show count ++ ", method=" ++ methodName method ++ ") ===\n"
 
     -- Generate test data
     putStr $ "Generating " ++ show count ++ " test items... "
@@ -132,14 +151,18 @@ runBenchmark useChunked skipProofs chunkSize count = do
     printf "%.2fs\n" (realToFrac (diffUTCTime end start) :: Double)
 
     -- Benchmark: Insert all items
-    (mRootHash, db, insertTime) <- if useChunked
-        then do
+    (mRootHash, db, insertTime) <- case method of
+        Chunked chunkSize -> do
             start' <- getCurrentTime
             (mRoot, db') <- insertAllChunked chunkSize testData
             end' <- getCurrentTime
             let durationMs = realToFrac (diffUTCTime end' start') * 1000
             pure (mRoot, db', durationMs)
-        else do
+        Stream -> do
+            ((mRoot, db'), t) <- benchmark ("Insert " ++ show count ++ " items (stream)") $ do
+                pure $! insertAllStream testData
+            pure (mRoot, db', t)
+        Batch -> do
             ((mRoot, db'), t) <- benchmark ("Insert " ++ show count ++ " items (batch)") $ do
                 pure $! insertAllBatch testData
             pure (mRoot, db', t)
@@ -171,22 +194,27 @@ runBenchmark useChunked skipProofs chunkSize count = do
 main :: IO ()
 main = do
     args <- getArgs
-    let (useChunked, skipProofs, chunkSize, counts) = parseArgs args
+    let (method, skipProofs, counts) = parseArgs args
 
     putStrLn "MPF Benchmark - Haskell Implementation"
     putStrLn "======================================"
-    when useChunked $ putStrLn $ "(Using chunked insert, chunk size: " ++ show chunkSize ++ ")"
+    putStrLn $ "(Using " ++ methodName method ++ " insert)"
     when skipProofs $ putStrLn "(Skipping proof generation/verification)"
 
-    mapM_ (runBenchmark useChunked skipProofs chunkSize) counts
+    mapM_ (runBenchmark method skipProofs) counts
 
-parseArgs :: [String] -> (Bool, Bool, Int, [Int])
+parseArgs :: [String] -> (InsertMethod, Bool, [Int])
 parseArgs args =
-    let useChunked = "--chunked" `elem` args
+    let useStream = "--stream" `elem` args
+        useChunked = "--chunked" `elem` args
         skipProofs = "--skip-proofs" `elem` args
         chunkSize = case [read (drop 8 x) | x <- args, take 8 x == "--chunk="] of
             (n:_) -> n
             [] -> 50000  -- Default chunk size
+        method
+            | useStream = Stream
+            | useChunked = Chunked chunkSize
+            | otherwise = Batch
         nums = [read x | x <- args, all (`elem` ['0'..'9']) x, not (null x)]
         counts = if null nums then [100, 1000] else nums
-    in (useChunked, skipProofs, chunkSize, counts)
+    in (method, skipProofs, counts)
