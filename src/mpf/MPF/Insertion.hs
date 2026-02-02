@@ -10,7 +10,7 @@ module MPF.Insertion
     )
 where
 
-import Data.List (foldl', sortOn)
+import Data.List (foldl')
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Database.KV.Transaction
@@ -77,13 +77,11 @@ insertingBatch FromHexKV{fromHexK, fromHexV} hashing kvCol mpfCol kvs = do
         Just c -> mapM_ (uncurry $ insert mpfCol) $ snd $ scanMPFCompose hashing c
 
 -- | Bulk insert for large datasets (millions of items)
--- Sorts items by key and inserts sequentially. Sorted insertion is much faster
--- than random order because consecutive keys share prefixes, minimizing tree
--- restructuring. For empty trees, consider 'insertingBatch' for small-to-medium
--- datasets that fit in memory.
+-- This is an alias for 'insertingBatch' which uses divide-and-conquer to build
+-- the tree in a single pass. For empty trees, this achieves O(n log n) complexity.
 --
--- Complexity: O(n log n) for sorting + O(n * d) for insertion where d is key depth
--- vs O(n² * d) for random insertion order
+-- Note: For adding items to an existing non-empty tree, use 'inserting' for each
+-- item, or consider rebuilding the tree with all items using 'insertingBatch'.
 insertingBulk
     :: (Monad m, Ord k, GCompare d)
     => FromHexKV k v a
@@ -92,11 +90,7 @@ insertingBulk
     -> Selector d HexKey (HexIndirect a)
     -> [(k, v)]
     -> Transaction m cf d ops ()
-insertingBulk fhkv@FromHexKV{fromHexK} hashing kvCol mpfCol kvs = do
-    -- Sort by hex key for optimal insertion order
-    let sorted = sortOn (fromHexK . fst) kvs
-    -- Insert each item in sorted order
-    mapM_ (\(k, v) -> inserting fhkv hashing kvCol mpfCol k v) sorted
+insertingBulk = insertingBatch
 
 -- | Build an MPFCompose tree from a list of key-value pairs
 -- Uses divide-and-conquer: find common prefix, group by first digit, recurse
