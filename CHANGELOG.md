@@ -1,5 +1,13 @@
 # Changelog for csmt-utxo
 
+## [0.3.2](https://github.com/paolino/haskell-csmt/compare/v0.3.1...v0.3.2) (2026-02-02)
+
+
+### Bug Fixes
+
+* correct artifact copy commands for bundler outputs ([140e2eb](https://github.com/paolino/haskell-csmt/commit/140e2eb33c6845bf6c0f8009bed7e23b9aa22438))
+* handle bundler output directories in release upload ([eb3632e](https://github.com/paolino/haskell-csmt/commit/eb3632e7ed908e1282484a67fb08a90afbe373eb))
+
 ## [0.3.1](https://github.com/paolino/haskell-csmt/compare/v0.3.0...v0.3.1) (2026-02-02)
 
 
