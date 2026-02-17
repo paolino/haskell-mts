@@ -162,4 +162,5 @@ fromKVHashes =
     FromKV
         { fromK = byteStringToKey
         , fromV = mkHash
+        , treePrefix = const []
         }

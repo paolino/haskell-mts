@@ -138,10 +138,27 @@ import CSMT.Interface (FromKV(..))
 -- Define conversion for your types
 myFromKV :: FromKV MyKey MyValue Hash
 myFromKV = FromKV
-    { fromK = myKeyToPath    -- Convert key to tree path
-    , fromV = myValueToHash  -- Convert value to hash
+    { fromK = myKeyToPath      -- Convert key to tree path
+    , fromV = myValueToHash    -- Convert value to hash
+    , treePrefix = const []    -- No prefix (default)
     }
 ```
+
+The `treePrefix` field allows secondary indexing by prepending a prefix
+derived from the value to the tree key. For example, to index UTxOs by
+address:
+
+```haskell
+addressIndexed :: FromKV TxIn TxOut Hash
+addressIndexed = FromKV
+    { fromK = txInToKey
+    , fromV = txOutToHash
+    , treePrefix = addressToKey . extractAddress
+    }
+```
+
+This makes the tree key `treePrefix(value) <> fromK(key)`, enabling
+completeness proofs over all entries sharing a prefix.
 
 ## Codecs
 

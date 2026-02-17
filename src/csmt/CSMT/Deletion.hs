@@ -76,13 +76,18 @@ deleting
     -> Selector d Key (Indirect a)
     -> k
     -> Transaction m cf d ops ()
-deleting FromKV{fromK} hashing kvSel csmtSel key = do
-    mpath <- newDeletionPath csmtSel (fromK key)
-    case mpath of
+deleting FromKV{fromK, treePrefix} hashing kvSel csmtSel key = do
+    mv <- query kvSel key
+    case mv of
         Nothing -> pure ()
-        Just path -> do
-            delete kvSel key
-            mapM_ (applyOp csmtSel) $ deletionPathToOps hashing path
+        Just v -> do
+            let treeKey = treePrefix v <> fromK key
+            mpath <- newDeletionPath csmtSel treeKey
+            case mpath of
+                Nothing -> pure ()
+                Just path -> do
+                    delete kvSel key
+                    mapM_ (applyOp csmtSel) $ deletionPathToOps hashing path
 
 -- | Apply a single database operation (insert or delete).
 applyOp
