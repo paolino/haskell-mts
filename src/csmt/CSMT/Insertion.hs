@@ -79,9 +79,10 @@ inserting
     -> k
     -> v
     -> Transaction m cf d ops ()
-inserting FromKV{fromK, fromV} hashing kVCol csmtCol k v = do
+inserting FromKV{fromK, fromV, treePrefix} hashing kVCol csmtCol k v = do
     insert kVCol k v
-    c <- buildComposeTree csmtCol (fromK k) (fromV v)
+    let treeKey = treePrefix v <> fromK k
+    c <- buildComposeTree csmtCol treeKey (fromV v)
     mapM_ (uncurry $ insert csmtCol) $ snd $ scanCompose hashing c
 
 -- |

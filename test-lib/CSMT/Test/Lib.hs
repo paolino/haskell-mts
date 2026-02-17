@@ -98,7 +98,7 @@ import Test.QuickCheck
 import Test.QuickCheck.Gen (Gen, elements)
 
 identityFromKV :: FromKV Key a a
-identityFromKV = FromKV{fromK = id, fromV = id}
+identityFromKV = FromKV{fromK = id, fromV = id, treePrefix = const []}
 
 word64Hashing :: Hashing Word64
 word64Hashing =

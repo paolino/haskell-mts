@@ -96,10 +96,10 @@ buildInclusionProof
     -> Hashing a
     -> k
     -> Transaction m cf d ops (Maybe (v, InclusionProof a))
-buildInclusionProof FromKV{fromK, fromV} kvSel csmtSel hashing k =
+buildInclusionProof FromKV{fromK, fromV, treePrefix} kvSel csmtSel hashing k =
     runMaybeT $ do
         v <- MaybeT $ query kvSel k
-        let key = fromK k
+        let key = treePrefix v <> fromK k
             value = fromV v
         rootIndirect@(Indirect rootJump _) <- MaybeT $ query csmtSel []
         guard $ isPrefixOf rootJump key

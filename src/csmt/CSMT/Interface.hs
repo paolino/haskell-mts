@@ -125,6 +125,8 @@ data FromKV k v a
     -- ^ Convert an external key to a tree path
     , fromV :: v -> a
     -- ^ Convert an external value to a hash
+    , treePrefix :: v -> Key
+    -- ^ Prefix prepended to tree key (for secondary indexing)
     }
 
 -- | Compare two keys and return their common prefix and the remaining suffixes
