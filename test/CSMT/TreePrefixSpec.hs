@@ -257,32 +257,78 @@ spec = do
                                 $ collectValues StandaloneCSMTCol [R]
                     collected `shouldBe` []
 
-        it "completeness proof for prefix subtree verifies"
+        it "completeness proof for both prefix subtrees verifies"
             $ property
-            $ forAll (elements [2 .. 8])
+            $ forAll (elements [1 .. 8])
             $ \n ->
                 forAll (genSomePaths n) $ \keys -> do
                     let kvs = zip keys [1 :: Word64 ..]
                         db = foldl' (\d (k, v) -> insertP k v d) emptyInMemoryDB kvs
-                        -- Collect values and generate proof for [L] subtree
-                        (collected, proof, subtreeRoot) =
+                        verify p =
                             fst
                                 $ runPure db
                                 $ runPureTransaction word64Codecs
                                 $ do
-                                    c <- collectValues StandaloneCSMTCol [L]
-                                    p <- generateProof StandaloneCSMTCol [L]
-                                    r <- queryPrefix StandaloneCSMTCol [L]
-                                    pure (c, p, r)
-                    case proof of
-                        Nothing ->
-                            -- No subtree at [L] means no even values
-                            collected `shouldBe` []
-                        Just p -> do
-                            -- foldProof reconstructs the subtree root
-                            let computed =
+                                    c <- collectValues StandaloneCSMTCol p
+                                    pr <- generateProof StandaloneCSMTCol p
+                                    r <- queryPrefix StandaloneCSMTCol p
+                                    pure (c, pr, r)
+                    -- Verify both [L] and [R] subtrees
+                    mapM_
+                        ( \p -> do
+                            let (collected, proof, subtreeRoot) = verify p
+                            case proof of
+                                Nothing -> collected `shouldBe` []
+                                Just pr ->
                                     foldProof
                                         (combineHash word64Hashing)
                                         (sort collected)
-                                        p
-                            computed `shouldBe` subtreeRoot
+                                        pr
+                                        `shouldBe` subtreeRoot
+                        )
+                        ([[L], [R]] :: [Key])
+
+        it "completeness proof for root verifies with prefixed trees"
+            $ property
+            $ forAll (elements [1 .. 8])
+            $ \n ->
+                forAll (genSomePaths n) $ \keys -> do
+                    let kvs = zip keys [1 :: Word64 ..]
+                        db = foldl' (\d (k, v) -> insertP k v d) emptyInMemoryDB kvs
+                        (collected, proof, root) =
+                            fst
+                                $ runPure db
+                                $ runPureTransaction word64Codecs
+                                $ do
+                                    c <- collectValues StandaloneCSMTCol []
+                                    p <- generateProof StandaloneCSMTCol []
+                                    r <- queryPrefix StandaloneCSMTCol []
+                                    pure (c, p, r)
+                    case proof of
+                        Nothing -> collected `shouldBe` []
+                        Just p ->
+                            foldProof
+                                (combineHash word64Hashing)
+                                (sort collected)
+                                p
+                                `shouldBe` root
+
+        it "generateProof is Nothing iff collectValues is empty"
+            $ property
+            $ forAll (elements [1 .. 8])
+            $ \n ->
+                forAll (genSomePaths n) $ \keys -> do
+                    let kvs = zip keys [1 :: Word64 ..]
+                        db = foldl' (\d (k, v) -> insertP k v d) emptyInMemoryDB kvs
+                        consistent p =
+                            let (isEmpty, hasProof) =
+                                    fst
+                                        $ runPure db
+                                        $ runPureTransaction word64Codecs
+                                        $ do
+                                            c <- collectValues StandaloneCSMTCol p
+                                            pr <- generateProof StandaloneCSMTCol p
+                                            pure (null c, pr /= Nothing)
+                            in  isEmpty /= hasProof
+                    all consistent ([[], [L], [R]] :: [Key])
+                        `shouldBe` True
