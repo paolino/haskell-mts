@@ -29,6 +29,7 @@ module CSMT.Hashes
     , hashHashing
     , keyToHash
     , byteStringToKey
+    , keyToByteString
     , isoHash
     , fromKVHashes
     )
@@ -116,6 +117,20 @@ byteStringToKey bs = concatMap byteToDirections (B.unpack bs)
 -- | Convert a byte to 8 directions (one per bit, MSB first).
 byteToDirections :: Word8 -> Key
 byteToDirections byte = [if testBit byte i then R else L | i <- [7, 6 .. 0]]
+
+-- | Convert a Key back to a ByteString (inverse of 'byteStringToKey').
+-- Groups every 8 directions into a byte (MSB first).
+keyToByteString :: Key -> ByteString
+keyToByteString = B.pack . go
+  where
+    go [] = []
+    go ds =
+        let (byte, rest) = splitAt 8 ds
+            toByte = foldl
+                (\acc (i, d) -> case d of R -> setBit acc i; L -> acc)
+                (0 :: Word8)
+                (zip [7, 6 .. 0] byte)
+        in  toByte : go rest
 
 -- | Get the root hash of the tree, if it exists.
 root

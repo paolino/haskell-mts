@@ -2,6 +2,8 @@ module CSMT.HashesSpec (spec) where
 
 import CSMT.Hashes
     ( Hash
+    , byteStringToKey
+    , keyToByteString
     , mkHash
     , parseProof
     , renderProof
@@ -46,3 +48,7 @@ spec = describe "Hashes" $ do
                 rendered = renderProof proof
                 parsed = parseProof rendered
             parsed `shouldBe` Just proof
+    it "keyToByteString . byteStringToKey == id"
+        $ property
+        $ forAll (B.pack <$> listOf (elements [0 .. 255]))
+        $ \bs -> keyToByteString (byteStringToKey bs) `shouldBe` bs
