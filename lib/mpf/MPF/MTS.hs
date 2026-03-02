@@ -85,16 +85,29 @@ mpfMerkleTreeStore run db fromKV hashing =
                                 $ if hexIsLeaf i
                                     then leafHash hashing (hexJump i) (hexValue i)
                                     else hexValue i
-        , mtsMkProof =
+        , mtsMkProof = \k ->
             run
-                . runTransactionUnguarded db
-                . mkMPFInclusionProof fromKV hashing MPFStandaloneMPFCol
+                $ runTransactionUnguarded db
+                $ do
+                    mp <- mkMPFInclusionProof fromKV hashing MPFStandaloneMPFCol k
+                    case mp of
+                        Nothing -> pure Nothing
+                        Just proof -> do
+                            mi <- query MPFStandaloneMPFCol ([] :: HexKey)
+                            pure $ case mi of
+                                Nothing -> Nothing
+                                Just i ->
+                                    let r =
+                                            if hexIsLeaf i
+                                                then leafHash hashing (hexJump i) (hexValue i)
+                                                else hexValue i
+                                    in  Just (r, proof)
         , mtsVerifyProof = \v proof ->
             run
                 $ runTransactionUnguarded db
                 $ verifyMPFInclusionProof fromKV MPFStandaloneMPFCol hashing v proof
-        , mtsFoldProof = \_ proof ->
-            foldMPFProof hashing (fromHexV fromKV undefined) proof
+        , mtsFoldProof =
+            foldMPFProof hashing
         , mtsBatchInsert =
             run
                 . runTransactionUnguarded db

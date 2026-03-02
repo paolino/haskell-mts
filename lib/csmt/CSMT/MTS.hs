@@ -90,13 +90,19 @@ csmtMerkleTreeStore run db fromKV hashing =
                 $ do
                     mp <-
                         buildInclusionProof fromKV StandaloneKVCol StandaloneCSMTCol hashing k
-                    pure $ fmap snd mp
+                    case mp of
+                        Nothing -> pure Nothing
+                        Just (_, proof) -> do
+                            mr <- root hashing StandaloneCSMTCol
+                            pure $ case mr of
+                                Nothing -> Nothing
+                                Just r -> Just (r, proof)
         , mtsVerifyProof = \v proof ->
             pure
                 $ proofValue proof == fromV fromKV v
                     && verifyInclusionProof hashing proof
-        , mtsFoldProof = \_ proof ->
-            computeRootHash hashing proof
+        , mtsFoldProof =
+            computeRootHash hashing
         , mtsBatchInsert =
             run
                 . runTransactionUnguarded db

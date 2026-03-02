@@ -149,6 +149,8 @@ spec = do
             $ propSingleInsertHasRoot mkCsmtStore genBSPair
         it "wrong value rejects"
             $ propWrongValueRejects mkCsmtStore genBSTriple
+        it "proof anchored to root"
+            $ propProofAnchoredToRoot mkCsmtStore genBSPair
         it "completeness round-trip"
             $ propCompletenessRoundTrip mkCsmtStore genBSPairs
         it "completeness empty"
@@ -172,6 +174,8 @@ spec = do
             $ propSingleInsertHasRoot mkMpfStore genBSPair
         it "wrong value rejects"
             $ propWrongValueRejects mkMpfStore genBSTriple
+        it "proof anchored to root"
+            $ propProofAnchoredToRoot mkMpfStore genBSPair
         it "completeness round-trip" pending
         it "completeness empty" pending
         it "completeness after delete" pending

@@ -42,11 +42,11 @@ data MerkleTreeStore imp m = MerkleTreeStore
     -- ^ Delete a key
     , mtsRootHash :: m (Maybe (MtsHash imp))
     -- ^ Query the current root hash
-    , mtsMkProof :: MtsKey imp -> m (Maybe (MtsProof imp))
-    -- ^ Generate a membership proof
+    , mtsMkProof :: MtsKey imp -> m (Maybe (MtsHash imp, MtsProof imp))
+    -- ^ Generate a membership proof anchored to the current root hash
     , mtsVerifyProof :: MtsValue imp -> MtsProof imp -> m Bool
     -- ^ Verify a membership proof for a value
-    , mtsFoldProof :: MtsHash imp -> MtsProof imp -> MtsHash imp
+    , mtsFoldProof :: MtsProof imp -> MtsHash imp
     -- ^ Compute root hash from a proof
     , mtsBatchInsert :: [(MtsKey imp, MtsValue imp)] -> m ()
     -- ^ Batch insert multiple key-value pairs
