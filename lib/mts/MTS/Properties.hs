@@ -12,6 +12,7 @@ module MTS.Properties
     , propEmptyTreeNoRoot
     , propSingleInsertHasRoot
     , propWrongValueRejects
+    , propProofAnchoredToRoot
     , propCompletenessRoundTrip
     , propCompletenessEmpty
     , propCompletenessAfterDelete
@@ -51,7 +52,7 @@ propInsertVerify mkStore gen =
         mp <- mtsMkProof store k
         case mp of
             Nothing -> pure False
-            Just proof -> mtsVerifyProof store v proof
+            Just (_, proof) -> mtsVerifyProof store v proof
 
 -- | Insert N pairs, all verify.
 propMultipleInsertAllVerify
@@ -71,7 +72,7 @@ propMultipleInsertAllVerify mkStore gen =
                     mp <- mtsMkProof store k
                     case mp of
                         Nothing -> pure False
-                        Just proof ->
+                        Just (_, proof) ->
                             mtsVerifyProof store v proof
                 )
                 kvs
@@ -116,7 +117,7 @@ propDeleteRemovesKey mkStore gen =
         mp <- mtsMkProof store k
         case mp of
             Nothing -> pure True
-            Just proof ->
+            Just (_, proof) ->
                 not <$> mtsVerifyProof store v proof
 
 -- | Insert 3 distinct keys, delete one, other two still verify.
@@ -147,13 +148,13 @@ propDeletePreservesSiblings mkStore gen1 gen2 gen3 =
                                 mp <- mtsMkProof store k1
                                 case mp of
                                     Nothing -> pure False
-                                    Just proof ->
+                                    Just (_, proof) ->
                                         mtsVerifyProof store v1 proof
                             r3 <- do
                                 mp <- mtsMkProof store k3
                                 case mp of
                                     Nothing -> pure False
-                                    Just proof ->
+                                    Just (_, proof) ->
                                         mtsVerifyProof store v3 proof
                             pure $ r1 && r3
 
@@ -234,8 +235,32 @@ propWrongValueRejects mkStore gen =
         mp <- mtsMkProof store k
         case mp of
             Nothing -> pure False
-            Just proof ->
+            Just (_, proof) ->
                 not <$> mtsVerifyProof store v' proof
+
+-- | The root hash returned by mtsMkProof matches mtsFoldProof
+-- and mtsRootHash.
+propProofAnchoredToRoot
+    :: ( Show (MtsKey imp)
+       , Show (MtsValue imp)
+       , Eq (MtsHash imp)
+       )
+    => IO (MerkleTreeStore imp IO)
+    -> Gen (MtsKey imp, MtsValue imp)
+    -> Property
+propProofAnchoredToRoot mkStore gen =
+    property $ forAll gen $ \(k, v) -> ioProperty $ do
+        store <- mkStore
+        mtsInsert store k v
+        mp <- mtsMkProof store k
+        case mp of
+            Nothing -> pure False
+            Just (anchoredRoot, proof) -> do
+                currentRoot <- mtsRootHash store
+                let foldedRoot = mtsFoldProof store proof
+                pure
+                    $ currentRoot == Just anchoredRoot
+                        && foldedRoot == anchoredRoot
 
 -- | Insert N pairs, collect leaves, generate completeness
 -- proof, verify it returns True.

@@ -92,6 +92,8 @@ data MPFProof a = MPFProof
     , mpfProofRootPrefix :: HexKey
     , mpfProofLeafSuffix :: HexKey
     -- ^ The remaining key suffix at the leaf level
+    , mpfProofValueHash :: a
+    -- ^ The hashed value at the leaf
     }
     deriving (Show, Eq)
 
@@ -121,6 +123,7 @@ mkMPFInclusionProof FromHexKV{fromHexK} hashing sel k =
         let key = fromHexK k
         HexIndirect
             { hexJump = rootJump
+            , hexValue = rootValue
             , hexIsLeaf = rootIsLeaf
             } <-
             MaybeT $ query sel []
@@ -133,21 +136,24 @@ mkMPFInclusionProof FromHexKV{fromHexK} hashing sel k =
                         { mpfProofSteps = []
                         , mpfProofRootPrefix = []
                         , mpfProofLeafSuffix = rootJump
+                        , mpfProofValueHash = rootValue
                         }
             else do
-                (steps, leafSuffix) <-
+                (steps, leafSuffix, valHash) <-
                     go [] rootJump remainingAfterRoot
                 pure
                     $ MPFProof
                         { mpfProofSteps = reverse steps
                         , mpfProofRootPrefix = rootJump
                         , mpfProofLeafSuffix = leafSuffix
+                        , mpfProofValueHash = valHash
                         }
   where
-    go _ _ [] = pure ([], [])
+    go _ _ [] = error "mkMPFInclusionProof: key not found"
     go u branchJump (x : ks) = do
         HexIndirect
             { hexJump = childJump
+            , hexValue = childValue
             , hexIsLeaf
             } <-
             MaybeT
@@ -236,14 +242,14 @@ mkMPFInclusionProof FromHexKV{fromHexK} hashing sel k =
                                 nodeHashes
                             }
         if hexIsLeaf
-            then pure ([step], childJump)
+            then pure ([step], childJump, childValue)
             else do
-                (restSteps, leafSuffix) <-
+                (restSteps, leafSuffix, valHash) <-
                     go
                         (u <> branchJump <> [x])
                         childJump
                         remaining
-                pure (step : restSteps, leafSuffix)
+                pure (step : restSteps, leafSuffix, valHash)
 
     computeNodeHash
         HexIndirect
@@ -336,21 +342,21 @@ computeNodeHash'
 --   hash (computed from suffix + value)
 -- * 'ProofStepFork': our hash + one neighbor branch
 --   hash (computed from prefix + merkle root)
-foldMPFProof :: MPFHashing a -> a -> MPFProof a -> a
+foldMPFProof :: MPFHashing a -> MPFProof a -> a
 foldMPFProof
     hashing
-    valueHash
-    MPFProof{mpfProofSteps, mpfProofLeafSuffix} =
-        case mpfProofSteps of
-            [] ->
-                leafHash hashing mpfProofLeafSuffix valueHash
-            steps ->
-                let leafNodeHash =
-                        leafHash
-                            hashing
-                            mpfProofLeafSuffix
-                            valueHash
-                in  foldl' step leafNodeHash steps
+    MPFProof{mpfProofSteps, mpfProofLeafSuffix, mpfProofValueHash} =
+        let valueHash = mpfProofValueHash
+        in  case mpfProofSteps of
+                [] ->
+                    leafHash hashing mpfProofLeafSuffix valueHash
+                steps ->
+                    let leafNodeHash =
+                            leafHash
+                                hashing
+                                mpfProofLeafSuffix
+                                valueHash
+                    in  foldl' step leafNodeHash steps
       where
         step acc proofStep =
             case proofStep of
@@ -475,9 +481,7 @@ verifyMPFInclusionProof
                             if hexIsLeaf
                                 then lh hexJump hexValue
                                 else hexValue
-                    in  rootNodeHash
-                            == foldMPFProof
-                                hashing
-                                valueHash
-                                proof
+                    in  mpfProofValueHash proof == valueHash
+                            && rootNodeHash
+                                == foldMPFProof hashing proof
             Nothing -> False

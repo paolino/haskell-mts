@@ -138,7 +138,7 @@ spec = do
                 case mProof of
                     Nothing -> fail "Expected proof"
                     Just proof -> do
-                        let computedRoot = foldMPFProof mpfHashing value proof
+                        let computedRoot = foldMPFProof mpfHashing proof
                         -- The folded proof should produce a non-empty hash
                         renderMPFHash computedRoot `shouldSatisfy` (not . B.null)
 
