@@ -2,11 +2,33 @@
 --
 -- Uses type families so each implementation phantom type
 -- (@CsmtImpl@, @MpfImpl@) determines key, value, hash, and
--- proof types. The 'MerkleTreeStore' record is parameterised
--- by just the implementation tag and the monad.
+-- proof types.
+--
+-- The store is parameterised by a @mode@ ('KVOnly' or 'Full')
+-- that determines which operations are available at the type
+-- level.
 module MTS.Interface
-    ( MerkleTreeStore (..)
+    ( -- * Mode
+      Mode (..)
+
+      -- * Operation records
+    , MtsKV (..)
+    , MtsTree (..)
+
+      -- * Store GADT
+    , MerkleTreeStore (..)
+    , mtsKV
+    , mtsTree
+
+      -- * Lifecycle transition
+    , MtsTransition (..)
+
+      -- * Natural transformations
+    , hoistMtsKV
+    , hoistMtsTree
     , hoistMTS
+
+      -- * Type families
     , MtsKey
     , MtsValue
     , MtsHash
@@ -14,6 +36,8 @@ module MTS.Interface
     , MtsLeaf
     , MtsCompletenessProof
     , MtsPrefix
+
+      -- * Namespaced store
     , NamespacedMTS (..)
     , hoistNamespacedMTS
     )
@@ -37,19 +61,28 @@ type family MtsLeaf imp
 -- | Completeness proof type for an implementation.
 type family MtsCompletenessProof imp
 
--- | A generic Merkle tree store providing insert, delete,
--- proof generation and verification.
-data MerkleTreeStore imp m = MerkleTreeStore
+-- | Store mode: 'KVOnly' during bootstrap (no tree ops),
+-- 'Full' after replay (all operations).
+data Mode = KVOnly | Full
+
+-- | KV operations -- available in both modes.
+data MtsKV imp m = MtsKV
     { mtsInsert :: MtsKey imp -> MtsValue imp -> m ()
     -- ^ Insert a key-value pair
     , mtsDelete :: MtsKey imp -> m ()
     -- ^ Delete a key
-    , mtsRootHash :: m (Maybe (MtsHash imp))
+    }
+
+-- | Tree operations -- only available in 'Full' mode.
+data MtsTree imp m = MtsTree
+    { mtsRootHash :: m (Maybe (MtsHash imp))
     -- ^ Query the current root hash
-    , mtsMkProof :: MtsKey imp -> m (Maybe (MtsHash imp, MtsProof imp))
-    -- ^ Generate a membership proof anchored to the current root hash
+    , mtsMkProof
+        :: MtsKey imp
+        -> m (Maybe (MtsHash imp, MtsProof imp))
+    -- ^ Generate a membership proof
     , mtsVerifyProof :: MtsValue imp -> MtsProof imp -> m Bool
-    -- ^ Verify a membership proof for a value
+    -- ^ Verify a membership proof
     , mtsFoldProof :: MtsProof imp -> MtsHash imp
     -- ^ Compute root hash from a proof
     , mtsBatchInsert :: [(MtsKey imp, MtsValue imp)] -> m ()
@@ -66,18 +99,57 @@ data MerkleTreeStore imp m = MerkleTreeStore
     -- ^ Verify a completeness proof against leaves
     }
 
--- | Transform the monad of a 'MerkleTreeStore' via a natural
--- transformation. Use this to run a transactional store in 'IO'
--- by supplying @run . runTransactionUnguarded db@.
-hoistMTS
+-- | Mode-indexed Merkle tree store.
+--
+-- In 'KVOnly' mode only KV operations are available (insert,
+-- delete). In 'Full' mode both KV and tree operations
+-- (root hash, proofs, batch insert) are available.
+data MerkleTreeStore (mode :: Mode) imp m where
+    MkKVOnly :: MtsKV imp m -> MerkleTreeStore 'KVOnly imp m
+    MkFull :: MtsKV imp m -> MtsTree imp m -> MerkleTreeStore 'Full imp m
+
+-- | Extract KV operations from any mode.
+mtsKV :: MerkleTreeStore mode imp m -> MtsKV imp m
+mtsKV (MkKVOnly kv) = kv
+mtsKV (MkFull kv _) = kv
+
+-- | Extract tree operations (only from 'Full').
+mtsTree :: MerkleTreeStore 'Full imp m -> MtsTree imp m
+mtsTree (MkFull _ tree) = tree
+
+-- | Lifecycle handle for managed mode transitions.
+--
+-- Bundles a 'KVOnly' store with a one-shot transition action
+-- that replays the journal and returns a 'Full' store. After
+-- 'transitionToFull' is called, operations on
+-- 'transitionKVStore' throw to prevent concurrent usage.
+data MtsTransition imp m = MtsTransition
+    { transitionKVStore :: MerkleTreeStore 'KVOnly imp m
+    -- ^ KVOnly store (disabled after transition)
+    , transitionToFull :: m (MerkleTreeStore 'Full imp m)
+    -- ^ Replay journal and return Full store.
+    --   Permanently disables 'transitionKVStore'.
+    }
+
+-- | Transform the monad of 'MtsKV'.
+hoistMtsKV
     :: (forall a. m a -> n a)
-    -> MerkleTreeStore imp m
-    -> MerkleTreeStore imp n
-hoistMTS f s =
-    MerkleTreeStore
+    -> MtsKV imp m
+    -> MtsKV imp n
+hoistMtsKV f s =
+    MtsKV
         { mtsInsert = \k v -> f (mtsInsert s k v)
         , mtsDelete = f . mtsDelete s
-        , mtsRootHash = f (mtsRootHash s)
+        }
+
+-- | Transform the monad of 'MtsTree'.
+hoistMtsTree
+    :: (forall a. m a -> n a)
+    -> MtsTree imp m
+    -> MtsTree imp n
+hoistMtsTree f s =
+    MtsTree
+        { mtsRootHash = f (mtsRootHash s)
         , mtsMkProof = f . mtsMkProof s
         , mtsVerifyProof = \v p -> f (mtsVerifyProof s v p)
         , mtsFoldProof = mtsFoldProof s
@@ -88,13 +160,23 @@ hoistMTS f s =
             \ls p -> f (mtsVerifyCompletenessProof s ls p)
         }
 
+-- | Transform the monad of a 'MerkleTreeStore' via a natural
+-- transformation.
+hoistMTS
+    :: (forall a. m a -> n a)
+    -> MerkleTreeStore mode imp m
+    -> MerkleTreeStore mode imp n
+hoistMTS f (MkKVOnly kv) = MkKVOnly (hoistMtsKV f kv)
+hoistMTS f (MkFull kv tree) =
+    MkFull (hoistMtsKV f kv) (hoistMtsTree f tree)
+
 -- | Namespace prefix type for an implementation.
 type family MtsPrefix imp
 
 -- | A namespaced Merkle tree store supporting multiple independent
--- namespaces within one database.
+-- namespaces within one database. Always 'Full' mode.
 data NamespacedMTS imp m = NamespacedMTS
-    { nsStore :: MtsPrefix imp -> MerkleTreeStore imp m
+    { nsStore :: MtsPrefix imp -> MerkleTreeStore 'Full imp m
     -- ^ Get a scoped store for a namespace.
     --   Creation is implicit on first insert.
     , nsDelete :: MtsPrefix imp -> m ()

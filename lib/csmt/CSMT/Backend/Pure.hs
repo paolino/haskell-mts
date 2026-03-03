@@ -36,7 +36,7 @@ import CSMT.Interface
     , Key
     , csmtCodecs
     )
-import Control.Lens (preview)
+import Control.Lens (iso, preview)
 import Control.Monad.Catch.Pure (Catch, runCatch)
 import Control.Monad.Trans.State.Strict
     ( StateT (runStateT)
@@ -119,15 +119,17 @@ prevCursor c@Cursor{position = Just k, snapshot} =
             Nothing -> c{position = Nothing}
 
 -- |
--- In-memory database storing CSMT nodes and key-value pairs.
+-- In-memory database storing CSMT nodes, key-value pairs, and journal.
 --
--- Contains three maps:
+-- Contains four maps:
 -- * 'inMemoryCSMT' - The CSMT node storage
 -- * 'inMemoryKV' - The key-value pair storage
+-- * 'inMemoryJournal' - The journal for KVOnly replay
 -- * 'inMemoryIterators' - Active iterator cursors
 data InMemoryDB = InMemoryDB
     { inMemoryCSMT :: Map ByteString ByteString
     , inMemoryKV :: Map ByteString ByteString
+    , inMemoryJournal :: Map ByteString ByteString
     , inMemoryIterators :: Map Int Cursor
     }
     deriving (Show, Eq)
@@ -148,7 +150,7 @@ inMemoryCSMTParsed StandaloneCodecs{nodeCodec = pa} m =
 
 -- | An empty in-memory database with no data.
 emptyInMemoryDB :: InMemoryDB
-emptyInMemoryDB = InMemoryDB Map.empty Map.empty Map.empty
+emptyInMemoryDB = InMemoryDB Map.empty Map.empty Map.empty Map.empty
 
 onCSMT
     :: (Map ByteString ByteString -> Map ByteString ByteString)
@@ -161,6 +163,12 @@ onKV
     -> InMemoryDB
     -> InMemoryDB
 onKV f m = m{inMemoryKV = f (inMemoryKV m)}
+
+onJournal
+    :: (Map ByteString ByteString -> Map ByteString ByteString)
+    -> InMemoryDB
+    -> InMemoryDB
+onJournal f m = m{inMemoryJournal = f (inMemoryJournal m)}
 
 -- | Pure monad for CSMT operations
 type Pure = StateT InMemoryDB Catch
@@ -182,6 +190,9 @@ pureValueAt StandaloneKV k = do
 pureValueAt StandaloneCSMT k = do
     csmt <- gets inMemoryCSMT
     pure $ Map.lookup k csmt
+pureValueAt StandaloneJournal k = do
+    journal <- gets inMemoryJournal
+    pure $ Map.lookup k journal
 
 pureApplyOps :: [StandaloneOp] -> Pure ()
 pureApplyOps ops = forM_ ops $ \(cf, k, mv) -> case (cf, mv) of
@@ -189,6 +200,8 @@ pureApplyOps ops = forM_ ops $ \(cf, k, mv) -> case (cf, mv) of
     (StandaloneKV, Just v) -> modify' $ onKV $ Map.insert k v
     (StandaloneCSMT, Nothing) -> modify' $ onCSMT $ Map.delete k
     (StandaloneCSMT, Just v) -> modify' $ onCSMT $ Map.insert k v
+    (StandaloneJournal, Nothing) -> modify' $ onJournal $ Map.delete k
+    (StandaloneJournal, Just v) -> modify' $ onJournal $ Map.insert k v
 
 -- | Build column definitions for the pure in-memory backend.
 standalonePureCols
@@ -206,6 +219,11 @@ standalonePureCols StandaloneCodecs{keyCodec = pk, valueCodec = pv, nodeCodec = 
                 { family = StandaloneCSMT
                 , codecs = csmtCodecs pa
                 }
+        , StandaloneJournalCol
+            :=> Column
+                { family = StandaloneJournal
+                , codecs = Codecs (iso id id) (iso id id)
+                }
         ]
 
 pureIterator :: StandaloneCF -> Pure (QueryIterator Pure)
@@ -213,6 +231,7 @@ pureIterator cf = do
     db <- gets $ case cf of
         StandaloneKV -> inMemoryKV
         StandaloneCSMT -> inMemoryCSMT
+        StandaloneJournal -> inMemoryJournal
     nextId <- gets $ \m -> case Map.lookupMax (inMemoryIterators m) of
         Just (i, _) -> i + 1
         Nothing -> 0

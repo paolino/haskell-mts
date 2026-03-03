@@ -4,6 +4,7 @@
 
 module MPF.Insertion
     ( inserting
+    , insertingTreeOnly
     , insertingBatch
     , insertingChunked
     , insertingStream
@@ -59,6 +60,24 @@ inserting
     -> Transaction m cf d ops ()
 inserting prefix FromHexKV{fromHexK, fromHexV, hexTreePrefix} hashing kvCol mpfCol k v = do
     insert kvCol k v
+    let treeKey = hexTreePrefix v <> fromHexK k
+    c <- mkMPFCompose mpfCol prefix treeKey (fromHexV v)
+    mapM_ (uncurry $ insert mpfCol)
+        $ snd
+        $ scanMPFCompose prefix hashing c
+
+-- | Insert into the tree column only (no KV write).
+-- Used during journal replay when KV is already up to date.
+insertingTreeOnly
+    :: (Monad m, GCompare d)
+    => HexKey
+    -> FromHexKV k v a
+    -> MPFHashing a
+    -> Selector d HexKey (HexIndirect a)
+    -> k
+    -> v
+    -> Transaction m cf d ops ()
+insertingTreeOnly prefix FromHexKV{fromHexK, fromHexV, hexTreePrefix} hashing mpfCol k v = do
     let treeKey = hexTreePrefix v <> fromHexK k
     c <- mkMPFCompose mpfCol prefix treeKey (fromHexV v)
     mapM_ (uncurry $ insert mpfCol)

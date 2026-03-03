@@ -18,6 +18,7 @@
 -- are computed, allowing for efficient batch processing of changes.
 module CSMT.Insertion
     ( inserting
+    , insertingTreeOnly
     , buildComposeTree
     , scanCompose
     , Compose (..)
@@ -84,6 +85,23 @@ inserting
     -> Transaction m cf d ops ()
 inserting pfx FromKV{isoK, fromV, treePrefix} hashing kVCol csmtCol k v = do
     insert kVCol k v
+    let treeKey = treePrefix v <> view isoK k
+    c <- buildComposeTree csmtCol pfx treeKey (fromV v)
+    mapM_ (uncurry $ insert csmtCol) $ snd $ scanCompose pfx hashing c
+
+-- | Insert into the tree column only (no KV write).
+-- Used during journal replay when KV is already up to date.
+insertingTreeOnly
+    :: (Monad m, GCompare d)
+    => Key
+    -- ^ Prefix (use @[]@ for root)
+    -> FromKV k v a
+    -> Hashing a
+    -> Selector d Key (Indirect a)
+    -> k
+    -> v
+    -> Transaction m cf d ops ()
+insertingTreeOnly pfx FromKV{isoK, fromV, treePrefix} hashing csmtCol k v = do
     let treeKey = treePrefix v <> view isoK k
     c <- buildComposeTree csmtCol pfx treeKey (fromV v)
     mapM_ (uncurry $ insert csmtCol) $ snd $ scanCompose pfx hashing c

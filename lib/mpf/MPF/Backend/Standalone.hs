@@ -20,7 +20,7 @@ import Database.KV.Transaction
 import MPF.Interface (HexIndirect (..), HexKey)
 
 -- | Column family identifiers for MPF standalone backend
-data MPFStandaloneCF = MPFStandaloneKV | MPFStandaloneMPF
+data MPFStandaloneCF = MPFStandaloneKV | MPFStandaloneMPF | MPFStandaloneJournal
     deriving (Show, Eq, Ord)
 
 -- | Operation type for standalone backend
@@ -35,17 +35,22 @@ mkMPFStandaloneOp = (,,)
 data MPFStandalone k v a x where
     MPFStandaloneKVCol :: MPFStandalone k v a (KV k v)
     MPFStandaloneMPFCol :: MPFStandalone k v a (KV HexKey (HexIndirect a))
+    MPFStandaloneJournalCol :: MPFStandalone k v a (KV ByteString ByteString)
 
 instance GEq (MPFStandalone k v a) where
     geq MPFStandaloneKVCol MPFStandaloneKVCol = Just Refl
     geq MPFStandaloneMPFCol MPFStandaloneMPFCol = Just Refl
+    geq MPFStandaloneJournalCol MPFStandaloneJournalCol = Just Refl
     geq _ _ = Nothing
 
 instance GCompare (MPFStandalone k v a) where
     gcompare MPFStandaloneKVCol MPFStandaloneKVCol = GEQ
-    gcompare MPFStandaloneKVCol MPFStandaloneMPFCol = GLT
+    gcompare MPFStandaloneKVCol _ = GLT
     gcompare MPFStandaloneMPFCol MPFStandaloneKVCol = GGT
     gcompare MPFStandaloneMPFCol MPFStandaloneMPFCol = GEQ
+    gcompare MPFStandaloneMPFCol MPFStandaloneJournalCol = GLT
+    gcompare MPFStandaloneJournalCol MPFStandaloneJournalCol = GEQ
+    gcompare MPFStandaloneJournalCol _ = GGT
 
 -- | Serialization codecs for the MPF standalone backend
 data MPFStandaloneCodecs k v a = MPFStandaloneCodecs
