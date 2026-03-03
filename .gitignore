@@ -7,3 +7,6 @@ result
 testdb
 **/*.bak
 site
+lean/.lake
+WIP.md
+.llm
