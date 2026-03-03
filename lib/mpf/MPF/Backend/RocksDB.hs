@@ -9,6 +9,7 @@ where
 
 import Control.Concurrent (newEmptyMVar, putMVar, readMVar)
 import Control.Concurrent.Async (async, link)
+import Control.Lens (iso)
 import Control.Monad ((<=<))
 import Control.Monad.Trans.Reader (ReaderT (..), ask)
 import Database.KV.Database (Database (..))
@@ -44,7 +45,7 @@ mpfStandaloneRocksDBCols
     -> DMap (MPFStandalone k v a) (Column ColumnFamily)
 mpfStandaloneRocksDBCols
     MPFStandaloneCodecs{mpfKeyCodec, mpfValueCodec, mpfNodeCodec}
-    [kvcf, mpfcf] =
+    [kvcf, mpfcf, journalcf] =
         fromPairList
             [ MPFStandaloneKVCol
                 :=> Column
@@ -56,9 +57,14 @@ mpfStandaloneRocksDBCols
                     { family = mpfcf
                     , codecs = mpfCodecs mpfNodeCodec
                     }
+            , MPFStandaloneJournalCol
+                :=> Column
+                    { family = journalcf
+                    , codecs = Codecs (iso id id) (iso id id)
+                    }
             ]
 mpfStandaloneRocksDBCols _ _ =
-    error "mpfStandaloneRocksDBCols: expected exactly two column families"
+    error "mpfStandaloneRocksDBCols: expected exactly three column families"
 
 -- | Create a RocksDB database for MPF
 mpfStandaloneRocksDBDatabase
@@ -86,7 +92,10 @@ withMPFRocksDB path mpfMaxFiles kvMaxFiles action = do
     withDBCF
         path
         def
-        [("kv", configKV kvMaxFiles), ("mpf", configMPF mpfMaxFiles)]
+        [ ("kv", configKV kvMaxFiles)
+        , ("mpf", configMPF mpfMaxFiles)
+        , ("journal", configJournal)
+        ]
         $ \db -> do
             action $ RunMPFRocksDB $ flip runReaderT db
 
@@ -101,7 +110,10 @@ unsafeWithMPFRocksDB path mpfMaxFiles kvMaxFiles = do
         withDBCF
             path
             def
-            [("kv", configKV kvMaxFiles), ("mpf", configMPF mpfMaxFiles)]
+            [ ("kv", configKV kvMaxFiles)
+            , ("mpf", configMPF mpfMaxFiles)
+            , ("journal", configJournal)
+            ]
             $ \db -> do
                 putMVar dbv (RunMPFRocksDB $ flip runReaderT db)
                 readMVar wait
@@ -142,6 +154,18 @@ configKV n =
         , errorIfExists = False
         , paranoidChecks = False
         , maxFiles = Just n
+        , prefixLength = Nothing
+        , bloomFilter = False
+        }
+
+-- | Configuration for the journal column family
+configJournal :: Config
+configJournal =
+    Config
+        { createIfMissing = True
+        , errorIfExists = False
+        , paranoidChecks = False
+        , maxFiles = Nothing
         , prefixLength = Nothing
         , bloomFilter = False
         }

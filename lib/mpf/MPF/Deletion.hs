@@ -2,6 +2,7 @@
 
 module MPF.Deletion
     ( deleting
+    , deletingTreeOnly
     , newMPFDeletionPath
     , MPFDeletionPath (..)
     , deletionPathToOps
@@ -68,6 +69,26 @@ deleting prefix FromHexKV{fromHexK, hexTreePrefix} hashing kvSel mpfSel key = do
                 Just path -> do
                     delete kvSel key
                     mapM_ (applyOp mpfSel) $ deletionPathToOps prefix hashing path
+
+-- | Delete from the tree column only (no KV write).
+-- Takes the old value as parameter (needed for tree key computation).
+-- Used during journal replay when KV is already up to date.
+deletingTreeOnly
+    :: (Monad m, GCompare d)
+    => HexKey
+    -> FromHexKV k v a
+    -> MPFHashing a
+    -> Selector d HexKey (HexIndirect a)
+    -> k
+    -> v
+    -> Transaction m cf d ops ()
+deletingTreeOnly prefix FromHexKV{fromHexK, hexTreePrefix} hashing mpfSel key v = do
+    let treeKey = hexTreePrefix v <> fromHexK key
+    mpath <- newMPFDeletionPath prefix mpfSel treeKey
+    case mpath of
+        Nothing -> pure ()
+        Just path ->
+            mapM_ (applyOp mpfSel) $ deletionPathToOps prefix hashing path
 
 -- | Apply a single deletion operation
 applyOp

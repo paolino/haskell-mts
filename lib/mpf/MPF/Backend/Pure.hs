@@ -11,6 +11,7 @@ module MPF.Backend.Pure
     )
 where
 
+import Control.Lens (iso)
 import Control.Monad.Catch.Pure (Catch, runCatch)
 import Control.Monad.Trans.State.Strict
     ( StateT (runStateT)
@@ -105,13 +106,15 @@ prevCursor c@Cursor{position = Just k, snapshot} =
 data MPFInMemoryDB = MPFInMemoryDB
     { mpfInMemoryMPF :: Map ByteString ByteString
     , mpfInMemoryKV :: Map ByteString ByteString
+    , mpfInMemoryJournal :: Map ByteString ByteString
     , mpfInMemoryIterators :: Map Int Cursor
     }
     deriving (Show, Eq)
 
 -- | Empty in-memory database
 emptyMPFInMemoryDB :: MPFInMemoryDB
-emptyMPFInMemoryDB = MPFInMemoryDB Map.empty Map.empty Map.empty
+emptyMPFInMemoryDB =
+    MPFInMemoryDB Map.empty Map.empty Map.empty Map.empty
 
 onMPF
     :: (Map ByteString ByteString -> Map ByteString ByteString)
@@ -124,6 +127,12 @@ onKV
     -> MPFInMemoryDB
     -> MPFInMemoryDB
 onKV f m = m{mpfInMemoryKV = f (mpfInMemoryKV m)}
+
+onJournal
+    :: (Map ByteString ByteString -> Map ByteString ByteString)
+    -> MPFInMemoryDB
+    -> MPFInMemoryDB
+onJournal f m = m{mpfInMemoryJournal = f (mpfInMemoryJournal m)}
 
 -- | Pure monad for MPF operations
 type MPFPure = StateT MPFInMemoryDB Catch
@@ -145,6 +154,9 @@ pureValueAt MPFStandaloneKV k = do
 pureValueAt MPFStandaloneMPF k = do
     mpf <- gets mpfInMemoryMPF
     pure $ Map.lookup k mpf
+pureValueAt MPFStandaloneJournal k = do
+    journal <- gets mpfInMemoryJournal
+    pure $ Map.lookup k journal
 
 pureApplyOps :: [MPFStandaloneOp] -> MPFPure ()
 pureApplyOps ops = forM_ ops $ \(cf, k, mv) -> case (cf, mv) of
@@ -152,6 +164,10 @@ pureApplyOps ops = forM_ ops $ \(cf, k, mv) -> case (cf, mv) of
     (MPFStandaloneKV, Just v) -> modify' $ onKV $ Map.insert k v
     (MPFStandaloneMPF, Nothing) -> modify' $ onMPF $ Map.delete k
     (MPFStandaloneMPF, Just v) -> modify' $ onMPF $ Map.insert k v
+    (MPFStandaloneJournal, Nothing) ->
+        modify' $ onJournal $ Map.delete k
+    (MPFStandaloneJournal, Just v) ->
+        modify' $ onJournal $ Map.insert k v
 
 standaloneMPFPureCols
     :: MPFStandaloneCodecs k v a
@@ -173,6 +189,11 @@ standaloneMPFPureCols
                     { family = MPFStandaloneMPF
                     , codecs = mpfCodecs pa
                     }
+            , MPFStandaloneJournalCol
+                :=> Column
+                    { family = MPFStandaloneJournal
+                    , codecs = Codecs (iso id id) (iso id id)
+                    }
             ]
 
 pureIterator :: MPFStandaloneCF -> MPFPure (QueryIterator MPFPure)
@@ -180,6 +201,7 @@ pureIterator cf = do
     db <- gets $ case cf of
         MPFStandaloneKV -> mpfInMemoryKV
         MPFStandaloneMPF -> mpfInMemoryMPF
+        MPFStandaloneJournal -> mpfInMemoryJournal
     nextId <- gets $ \m -> case Map.lookupMax (mpfInMemoryIterators m) of
         Just (i, _) -> i + 1
         Nothing -> 0

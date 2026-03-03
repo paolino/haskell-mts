@@ -16,6 +16,7 @@
 -- by extending jump paths where branches become unnecessary.
 module CSMT.Deletion
     ( deleting
+    , deletingTreeOnly
     , newDeletionPath
     , DeletionPath (..)
     , deletionPathToOps
@@ -93,6 +94,27 @@ deleting pfx FromKV{isoK, treePrefix} hashing kvSel csmtSel key = do
                     delete kvSel key
                     mapM_ (applyOp csmtSel)
                         $ deletionPathToOps pfx hashing path
+
+-- | Delete from the tree column only (no KV write).
+-- Takes the old value as parameter (needed for tree key computation).
+-- Used during journal replay when KV is already up to date.
+deletingTreeOnly
+    :: (Monad m, GCompare d)
+    => Key
+    -- ^ Prefix (use @[]@ for root)
+    -> FromKV k v a
+    -> Hashing a
+    -> Selector d Key (Indirect a)
+    -> k
+    -> v
+    -> Transaction m cf d ops ()
+deletingTreeOnly pfx FromKV{isoK, treePrefix} hashing csmtSel key v = do
+    let treeKey = treePrefix v <> view isoK key
+    mpath <- newDeletionPath pfx csmtSel treeKey
+    case mpath of
+        Nothing -> pure ()
+        Just path ->
+            mapM_ (applyOp csmtSel) $ deletionPathToOps pfx hashing path
 
 -- | Apply a single database operation (insert or delete).
 applyOp

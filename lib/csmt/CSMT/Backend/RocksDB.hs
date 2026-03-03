@@ -7,9 +7,10 @@
 -- A persistent storage backend for CSMT using RocksDB. This backend stores
 -- all data on disk, making it suitable for production use with large datasets.
 --
--- The database uses two column families:
+-- The database uses three column families:
 -- * \"kv\" - For key-value pair storage
 -- * \"csmt\" - For CSMT node storage
+-- * \"journal\" - For KVOnly mode journal entries
 module CSMT.Backend.RocksDB
     ( withRocksDB
     , RocksDB
@@ -26,6 +27,7 @@ import CSMT.Backend.Standalone
 import CSMT.Interface (csmtCodecs)
 import Control.Concurrent (newEmptyMVar, putMVar, readMVar)
 import Control.Concurrent.Async (async, link)
+import Control.Lens (iso)
 import Control.Monad ((<=<))
 import Control.Monad.Trans.Reader (ReaderT (..), ask)
 import Database.KV.Database
@@ -58,7 +60,7 @@ standaloneRocksDBCols
     -> DMap (Standalone k v a) (Column ColumnFamily)
 standaloneRocksDBCols
     StandaloneCodecs{keyCodec, valueCodec, nodeCodec = pa}
-    [kvcf, csmtcf] =
+    [kvcf, csmtcf, journalcf] =
         fromPairList
             [ StandaloneKVCol
                 :=> Column
@@ -70,8 +72,14 @@ standaloneRocksDBCols
                     { family = csmtcf
                     , codecs = csmtCodecs pa
                     }
+            , StandaloneJournalCol
+                :=> Column
+                    { family = journalcf
+                    , codecs = Codecs (iso id id) (iso id id)
+                    }
             ]
-standaloneRocksDBCols _ _ = error "pureCols: expected exactly two column families"
+standaloneRocksDBCols _ _ =
+    error "standaloneRocksDBCols: expected exactly three column families"
 
 -- | Create a RocksDB-backed database instance.
 standaloneRocksDBDatabase
@@ -104,7 +112,10 @@ withRocksDB path csmtMaxFiles kvMaxFiles action = do
     withDBCF
         path
         def
-        [("kv", configKV kvMaxFiles), ("csmt", configCSMT csmtMaxFiles)]
+        [ ("kv", configKV kvMaxFiles)
+        , ("csmt", configCSMT csmtMaxFiles)
+        , ("journal", configJournal)
+        ]
         $ \db -> do
             action $ RunRocksDB $ flip runReaderT db
 
@@ -122,7 +133,10 @@ unsafeWithRocksDB path csmtMaxFiles kvMaxFiles = do
         withDBCF
             path
             def
-            [("kv", configKV kvMaxFiles), ("csmt", configCSMT csmtMaxFiles)]
+            [ ("kv", configKV kvMaxFiles)
+            , ("csmt", configCSMT csmtMaxFiles)
+            , ("journal", configJournal)
+            ]
             $ \db -> do
                 putMVar dbv (RunRocksDB $ flip runReaderT db)
                 readMVar wait
@@ -163,6 +177,18 @@ configKV n =
         , errorIfExists = False
         , paranoidChecks = False
         , maxFiles = Just n
+        , prefixLength = Nothing
+        , bloomFilter = False
+        }
+
+-- | Configuration for the journal column family.
+configJournal :: Config
+configJournal =
+    Config
+        { createIfMissing = True
+        , errorIfExists = False
+        , paranoidChecks = False
+        , maxFiles = Nothing
         , prefixLength = Nothing
         , bloomFilter = False
         }
