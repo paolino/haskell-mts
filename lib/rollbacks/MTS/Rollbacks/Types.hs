@@ -105,3 +105,4 @@ data RollbackPoint inv meta = RollbackPoint
     -- ^ Optional per-point metadata.
     }
     deriving stock (Eq, Show)
+
