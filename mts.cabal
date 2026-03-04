@@ -75,9 +75,15 @@ library rollbacks
   visibility:       public
   exposed-modules:
     MTS.Rollbacks
+    MTS.Rollbacks.Column
+    MTS.Rollbacks.Store
     MTS.Rollbacks.Types
 
-  build-depends:    base >=4.19 && <5
+  build-depends:
+    , base                                     >=4.19 && <5
+    , rocksdb-kv-transactions:kv-transactions
+    , transformers                             >=0.6  && <0.7
+
   hs-source-dirs:   lib/rollbacks/
   default-language: Haskell2010
 
