@@ -5,6 +5,12 @@ module MPF
       -- * Re-exports from Hashes
     , module MPF.Hashes
 
+      -- * Re-exports from CBOR Serialization
+    , module MPF.Hashes.CBOR
+
+      -- * Re-exports from Aiken Serialization
+    , module MPF.Hashes.Aiken
+
       -- * Re-exports from Insertion
     , module MPF.Insertion
 
@@ -22,6 +28,8 @@ where
 import MPF.Backend.Standalone
 import MPF.Deletion
 import MPF.Hashes
+import MPF.Hashes.Aiken
+import MPF.Hashes.CBOR
 import MPF.Insertion
 import MPF.Interface
 import MPF.Proof.Insertion

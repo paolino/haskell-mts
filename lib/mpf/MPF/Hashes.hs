@@ -7,6 +7,7 @@ module MPF.Hashes
     , renderMPFHash
     , parseMPFHash
     , nullHash
+    , isoMPFHash
 
       -- * Hashing Abstraction
     , MPFHashing (..)
@@ -24,38 +25,37 @@ module MPF.Hashes
 
       -- * Merkle Proof
     , merkleProof
+
+      -- * Root Hash
+    , root
     )
 where
 
+import Control.Lens (Iso', iso)
 import Crypto.Hash (Blake2b_256, hash)
-import Data.ByteArray (ByteArray, ByteArrayAccess, convert)
-import Data.ByteArray.Encoding (Base (Base64), convertToBase)
+import Data.ByteArray (convert)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as B
-import Data.ByteString.Char8 qualified as BC
 import Data.Maybe (fromMaybe)
 import Data.Word (Word8)
+import Database.KV.Transaction
+    ( GCompare
+    , Selector
+    , Transaction
+    , query
+    )
+import MPF.Hashes.Types (MPFHash (..), renderMPFHash)
 import MPF.Interface
     ( FromHexKV (..)
     , HexDigit (..)
+    , HexIndirect (..)
     , HexKey
     , byteStringToHexKey
     )
 
--- | MPF Hash value (32 bytes Blake2b-256)
-newtype MPFHash = MPFHash ByteString
-    deriving (Eq, Ord, Semigroup, Monoid, ByteArrayAccess, ByteArray)
-
-instance Show MPFHash where
-    show (MPFHash h) = BC.unpack $ "MPFHash " <> convertToBase Base64 h
-
 -- | Create a hash from arbitrary data using Blake2b-256
 mkMPFHash :: ByteString -> MPFHash
 mkMPFHash = MPFHash . convert . hash @ByteString @Blake2b_256
-
--- | Extract the raw bytes of a hash
-renderMPFHash :: MPFHash -> ByteString
-renderMPFHash (MPFHash h) = h
 
 -- | Parse a hash from raw bytes (must be exactly 32 bytes)
 parseMPFHash :: ByteString -> Maybe MPFHash
@@ -191,3 +191,24 @@ merkleProof children me =
 
     subtreeRoot :: [MPFHash] -> MPFHash
     subtreeRoot = pairwiseReduce
+
+-- | Get the root hash of the MPF tree, if it exists.
+root
+    :: (Monad m, GCompare d)
+    => Selector d HexKey (HexIndirect MPFHash)
+    -> HexKey
+    -> Transaction m cf d ops (Maybe ByteString)
+root sel prefix = do
+    mi <- query sel prefix
+    pure $ case mi of
+        Nothing -> Nothing
+        Just i ->
+            Just
+                $ renderMPFHash
+                $ if hexIsLeaf i
+                    then leafHash mpfHashing (hexJump i) (hexValue i)
+                    else hexValue i
+
+-- | Isomorphism between ByteString and MPFHash.
+isoMPFHash :: Iso' ByteString MPFHash
+isoMPFHash = iso MPFHash renderMPFHash

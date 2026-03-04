@@ -143,6 +143,9 @@ library mpf
     MPF.Backend.Standalone
     MPF.Deletion
     MPF.Hashes
+    MPF.Hashes.Aiken
+    MPF.Hashes.CBOR
+    MPF.Hashes.Types
     MPF.Insertion
     MPF.Interface
     MPF.MTS
@@ -153,6 +156,7 @@ library mpf
     , async                                    >=2.2  && <2.3
     , base                                     >=4.19 && <5
     , bytestring                               >=0.12 && <0.13
+    , cborg                                    >=0.2  && <0.3
     , cereal                                   >=0.5  && <0.6
     , containers                               >=0.6  && <0.7
     , crypton                                  >=1.0  && <1.1
@@ -253,6 +257,9 @@ test-suite unit-tests
     CSMT.Proof.CompletenessSpec
     CSMT.Proof.InsertionSpec
     CSMT.TreePrefixSpec
+    MPF.Backend.RocksDBSpec
+    MPF.Hashes.AikenSpec
+    MPF.Hashes.CBORSpec
     MPF.HashesSpec
     MPF.InsertionSpec
     MPF.InterfaceSpec
