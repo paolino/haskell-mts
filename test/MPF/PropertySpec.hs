@@ -164,14 +164,14 @@ propDeletePreservesSiblings =
     forAll (vectorOf 3 ((,) <$> genKeyBytes <*> genValue)) $ \rawKvs ->
         let kvs = nubBy (\(k1, _) (k2, _) -> toHexKey k1 == toHexKey k2) rawKvs
         in  length kvs == 3 ==>
-                let kvHashed = [(toHexKey k, mkMPFHash v) | (k, v) <- kvs]
-                    (keepKey, keepVal) = head kvHashed
-                    deleteKey = fst (kvHashed !! 1)
-                    (verified, _) = runMPFPure' $ do
-                        forM_ kvHashed $ uncurry insertMPFM
-                        deleteMPFM deleteKey
-                        verifyMPFM keepKey keepVal
-                in  verified
+                case [(toHexKey k, mkMPFHash v) | (k, v) <- kvs] of
+                    kvHashed@((keepKey, keepVal) : (deleteKey, _) : _) ->
+                        let (verified, _) = runMPFPure' $ do
+                                forM_ kvHashed $ uncurry insertMPFM
+                                deleteMPFM deleteKey
+                                verifyMPFM keepKey keepVal
+                        in  verified
+                    _ -> error "impossible: length kvs == 3"
 
 -- | Property: single insert produces a root hash
 propSingleInsertHasRoot :: TestKV -> Bool
