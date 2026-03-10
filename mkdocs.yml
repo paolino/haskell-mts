@@ -1,6 +1,6 @@
 site_name: MTS Documentation
 site_url: https://paolino.github.io/haskell-mts/
-repo_url: https://github.com/paolino/haskell-mts
+repo_url: https://github.com/lambdasistemi/haskell-mts
 
 theme:
   name: material

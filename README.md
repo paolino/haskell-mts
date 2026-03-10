@@ -1,7 +1,7 @@
 # MTS - Merkle Tree Store
 
-[![CI](https://github.com/paolino/haskell-mts/actions/workflows/CI.yaml/badge.svg)](https://github.com/paolino/haskell-mts/actions/workflows/CI.yaml)
-[![Documentation](https://github.com/paolino/haskell-mts/actions/workflows/deploy-docs.yaml/badge.svg)](https://github.com/paolino/haskell-mts/actions/workflows/deploy-docs.yaml)
+[![CI](https://github.com/lambdasistemi/haskell-mts/actions/workflows/CI.yaml/badge.svg)](https://github.com/lambdasistemi/haskell-mts/actions/workflows/CI.yaml)
+[![Documentation](https://github.com/lambdasistemi/haskell-mts/actions/workflows/deploy-docs.yaml/badge.svg)](https://github.com/lambdasistemi/haskell-mts/actions/workflows/deploy-docs.yaml)
 
 A Haskell library providing a shared Merkle tree store interface with two
 implementations:
@@ -82,7 +82,7 @@ main = withMPFStandaloneRocksDB "mydb" codecs $ \run db ->
 
 ```bash
 nix shell nixpkgs#cachix -c cachix use paolino
-nix shell github:paolino/haskell-mts --refresh
+nix shell github:lambdasistemi/haskell-mts --refresh
 ```
 
 ### Using Cabal
