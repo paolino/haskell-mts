@@ -50,6 +50,15 @@ module CSMT.Test.Lib
     , verifyHashMAt
     , insertHashM
     , getRootHashM
+
+      -- * Batch insertion
+    , insertBatchM
+    , insertStreamM
+    , insertChunkedM
+    , insertBatchWord64M
+    , insertStreamWord64M
+    , insertedBatch
+    , getRootHash
     )
 where
 
@@ -64,6 +73,9 @@ import CSMT
     , buildInclusionProof
     , deleteSubtree
     , inserting
+    , insertingBatch
+    , insertingChunked
+    , insertingStream
     , keyPrism
     , verifyInclusionProof
     )
@@ -96,7 +108,7 @@ import Data.Serialize
 import Data.Serialize.Extra (evalGetM, evalPutM)
 import Data.String (IsString (..))
 import Data.Word (Word64)
-import Database.KV.Transaction (runTransactionUnguarded)
+import Database.KV.Transaction (query, runTransactionUnguarded)
 import Test.QuickCheck
     ( listOf
     , listOf1
@@ -443,3 +455,86 @@ verifyHashMAt prefix k v =
             Just (val, proof) ->
                 val == v
                     && verifyInclusionProof hashHashing proof
+
+-- | Batch insert multiple key-value pairs
+insertBatchM
+    :: Ord k
+    => StandaloneCodecs k v a
+    -> FromKV k v a
+    -> Hashing a
+    -> [(k, v)]
+    -> Pure ()
+insertBatchM codecs fromKV hashing kvs =
+    runTransactionUnguarded (pureDatabase codecs)
+        $ insertingBatch [] fromKV hashing StandaloneKVCol StandaloneCSMTCol kvs
+
+-- | Streaming batch insert
+insertStreamM
+    :: Ord k
+    => StandaloneCodecs k v a
+    -> FromKV k v a
+    -> Hashing a
+    -> [(k, v)]
+    -> Pure ()
+insertStreamM codecs fromKV hashing kvs =
+    runTransactionUnguarded (pureDatabase codecs)
+        $ insertingStream
+            []
+            fromKV
+            hashing
+            StandaloneKVCol
+            StandaloneCSMTCol
+            kvs
+
+-- | Chunked insert
+insertChunkedM
+    :: Ord k
+    => StandaloneCodecs k v a
+    -> FromKV k v a
+    -> Hashing a
+    -> Int
+    -> [(k, v)]
+    -> Pure Int
+insertChunkedM codecs fromKV hashing chunkSize kvs =
+    runTransactionUnguarded (pureDatabase codecs)
+        $ insertingChunked
+            []
+            fromKV
+            hashing
+            StandaloneKVCol
+            StandaloneCSMTCol
+            chunkSize
+            kvs
+
+-- | Batch insert Word64s
+insertBatchWord64M :: [(Key, Word64)] -> Pure ()
+insertBatchWord64M = insertBatchM word64Codecs identityFromKV word64Hashing
+
+-- | Streaming insert Word64s
+insertStreamWord64M :: [(Key, Word64)] -> Pure ()
+insertStreamWord64M = insertStreamM word64Codecs identityFromKV word64Hashing
+
+-- | Insert a batch using divide-and-conquer and return the database
+insertedBatch
+    :: (Foldable t, Ord k)
+    => StandaloneCodecs k v a
+    -> FromKV k v a
+    -> Hashing a
+    -> t (k, v)
+    -> InMemoryDB
+insertedBatch codecs fromKV hashing kvs =
+    snd
+        $ runPure emptyInMemoryDB
+        $ insertBatchM codecs fromKV hashing (toList kvs)
+
+-- | Get the root hash from the CSMT (None if empty)
+getRootHash
+    :: StandaloneCodecs k v a
+    -> Hashing a
+    -> Pure (Maybe a)
+getRootHash codecs hashing = do
+    runTransactionUnguarded (pureDatabase codecs) $ do
+        mi <- Database.KV.Transaction.query StandaloneCSMTCol []
+        pure $ case mi of
+            Nothing -> Nothing
+            Just i -> Just $ rootHash hashing i

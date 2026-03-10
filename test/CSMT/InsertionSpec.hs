@@ -17,15 +17,22 @@ import CSMT.Backend.Pure
 import CSMT.Test.Lib
     ( ListOf
     , element
+    , genSomePaths
+    , identityFromKV
+    , insertBatchM
     , insertMWord64
+    , insertStreamM
     , list
     , node
     , word64Codecs
+    , word64Hashing
     )
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Word (Word64)
 import Test.Hspec (Expectation, Spec, describe, it, shouldBe)
+import Test.Hspec.QuickCheck (prop)
+import Test.QuickCheck (forAll, (===))
 import Prelude
 
 hasExpectedDB
@@ -163,3 +170,48 @@ spec = do
                     record [L, R, R, R] [] 19
                     record [R] [L, R, L] 23
             p `hasExpectedDB` db
+
+    describe "batch insertion" $ do
+        it "batch insert produces same result as sequential for 3 items" $ do
+            let kvs = [([L, L], 1), ([L, R], 2), ([R, L], 3)]
+                seqResult = snd $ runPure emptyInMemoryDB $ mapM_ (uncurry i) kvs
+                batchResult =
+                    snd
+                        $ runPure emptyInMemoryDB
+                        $ insertBatchM word64Codecs identityFromKV word64Hashing kvs
+            inMemoryCSMTParsed word64Codecs batchResult
+                `shouldBe` inMemoryCSMTParsed word64Codecs seqResult
+
+        it "stream insert produces same result as sequential for 3 items" $ do
+            let kvs = [([L, L], 1), ([L, R], 2), ([R, L], 3)]
+                seqResult = snd $ runPure emptyInMemoryDB $ mapM_ (uncurry i) kvs
+                streamResult =
+                    snd
+                        $ runPure emptyInMemoryDB
+                        $ insertStreamM word64Codecs identityFromKV word64Hashing kvs
+            inMemoryCSMTParsed word64Codecs streamResult
+                `shouldBe` inMemoryCSMTParsed word64Codecs seqResult
+
+        prop "batch insert equals sequential insert"
+            $ forAll (genSomePaths 8)
+            $ \keys ->
+                let kvs = zip keys [1 ..]
+                    seqResult = snd $ runPure emptyInMemoryDB $ mapM_ (uncurry i) kvs
+                    batchResult =
+                        snd
+                            $ runPure emptyInMemoryDB
+                            $ insertBatchM word64Codecs identityFromKV word64Hashing kvs
+                in  inMemoryCSMTParsed word64Codecs batchResult
+                        === inMemoryCSMTParsed word64Codecs seqResult
+
+        prop "stream insert equals sequential insert"
+            $ forAll (genSomePaths 8)
+            $ \keys ->
+                let kvs = zip keys [1 ..]
+                    seqResult = snd $ runPure emptyInMemoryDB $ mapM_ (uncurry i) kvs
+                    streamResult =
+                        snd
+                            $ runPure emptyInMemoryDB
+                            $ insertStreamM word64Codecs identityFromKV word64Hashing kvs
+                in  inMemoryCSMTParsed word64Codecs streamResult
+                        === inMemoryCSMTParsed word64Codecs seqResult
