@@ -46,7 +46,7 @@ You can build with nix
 
 ```bash
 nix shell nixpkgs#cachix -c cachix use paolino
-nix shell github:paolino/haskell-mts --refresh
+nix shell github:lambdasistemi/haskell-mts --refresh
 ```
 
 Or via cabal provided you have a working Haskell environment and rocksdb development files installed.

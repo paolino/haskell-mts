@@ -11,7 +11,7 @@ permissions:
 jobs:
   sync-version:
     if: startsWith(github.head_ref, 'release-please--')
-    runs-on: ubuntu-latest
+    runs-on: nixos
     steps:
       - uses: actions/checkout@v4
         with:

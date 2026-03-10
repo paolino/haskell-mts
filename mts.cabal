@@ -12,8 +12,8 @@ license:         Apache-2.0
 license-file:    LICENSE
 author:          Paolo Veronelli
 maintainer:      paolo.veronelli@gmail.com
-homepage:        https://github.com/paolino/haskell-mts
-bug-reports:     https://github.com/paolino/haskell-mts/issues
+homepage:        https://github.com/lambdasistemi/haskell-mts
+bug-reports:     https://github.com/lambdasistemi/haskell-mts/issues
 category:        Cryptography, Data
 stability:       experimental
 build-type:      Simple
